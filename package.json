@@ -1,0 +1,51 @@
+{
+  "name": "dramaword",
+  "version": "1.0.0",
+  "description": "A vocabulary learning app with React Native frontend and Node.js backend",
+  "private": true,
+  "workspaces": [
+    "mobile",
+    "api"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:mobile\"",
+    "dev:api": "cd api && npm run dev",
+    "dev:mobile": "cd mobile && npm start",
+    "build": "npm run build:api && npm run build:mobile",
+    "build:api": "cd api && npm run build",
+    "build:mobile": "cd mobile && npm run build",
+    "install:all": "npm install && cd mobile && npm install && cd ../api && npm install",
+    "clean": "rm -rf node_modules mobile/node_modules api/node_modules",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:build": "docker-compose build",
+    "test": "npm run test:api && npm run test:mobile",
+    "test:api": "cd api && npm test",
+    "test:mobile": "cd mobile && npm test",
+    "lint": "npm run lint:api && npm run lint:mobile",
+    "lint:api": "cd api && npm run lint",
+    "lint:mobile": "cd mobile && npm run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "vocabulary",
+    "learning",
+    "react-native",
+    "expo",
+    "nodejs",
+    "mongodb",
+    "typescript"
+  ],
+  "author": "Dramaword Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/dramaword.git"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+} 
