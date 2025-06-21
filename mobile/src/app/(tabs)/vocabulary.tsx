@@ -1,38 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Text, TouchableOpacity, Dimensions, Animated } from 'react-native';
+import { View, StyleSheet, FlatList, Text, TouchableOpacity, Dimensions, Animated, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import WordCard from '@/components/WordCard';
+import AchievementBadge from '@/components/AchievementBadge';
 import { wordService } from '@/services/wordService';
-import { Word } from '@/types/word';
+import { IWord } from '@/types/word';
 
 const { width, height } = Dimensions.get('window');
 const MAX_WORDS = 100; // 用户可以保存的最大单词数
 
+// 定义徽章里程碑
+const MILESTONES = [
+  { count: 10, level: 0 },
+  { count: 20, level: 1 },
+  { count: 50, level: 2 },
+  { count: 100, level: 3 },
+  { count: 200, level: 4 },
+  { count: 500, level: 5 },
+];
+
 export default function VocabularyScreen() {
-  const [words, setWords] = useState<Word[]>([]);
-  const [selectedWord, setSelectedWord] = useState<Word | null>(null);
+  const [words, setWords] = useState<IWord[]>([]);
+  const [selectedWord, setSelectedWord] = useState<IWord | null>(null);
   const [isCardVisible, setIsCardVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [nextMilestone, setNextMilestone] = useState<{
-    count: number;
-    remaining: number;
-    progress: number;
-  } | null>(null);
   
   const insets = useSafeAreaInsets();
   
-  // 动画值
   const slideAnim = useState(new Animated.Value(height))[0];
   const overlayOpacity = useState(new Animated.Value(0))[0];
 
-  // 🔥 使用 useFocusEffect 确保每次进入页面都重新加载数据
   useFocusEffect(
     React.useCallback(() => {
       console.log('📱 Vocabulary screen focused, reloading data...');
       loadVocabulary();
-      loadNextMilestone();
     }, [])
   );
 
@@ -42,145 +45,95 @@ export default function VocabularyScreen() {
       console.log('📚 Loading vocabulary from storage...');
       
       const allWords = await wordService.getAllWords();
-      console.log(`📊 Loaded ${allWords.length} words from storage`);
       
-      setWords(allWords);
+      if (Array.isArray(allWords)) {
+        const validWords = allWords.filter(word => word && word._id && word.word);
+        console.log(`📊 Loaded ${validWords.length} valid words from storage`);
+        setWords(validWords);
+      } else {
+        console.warn('loadVocabulary: wordService.getAllWords() did not return an array.');
+        setWords([]);
+      }
     } catch (error) {
       console.error('Load vocabulary error:', error);
-      setWords([]); // 确保在错误时清空列表
+      setWords([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadNextMilestone = async () => {
-    try {
-      const milestoneInfo = await wordService.getNextMilestoneInfo();
-      setNextMilestone(milestoneInfo);
-    } catch (error) {
-      console.error('Load next milestone error:', error);
-    }
-  };
-
-  const handleWordPress = (word: Word) => {
+  const handleWordPress = (word: IWord) => {
     setSelectedWord(word);
     setIsCardVisible(true);
     
-    // 执行进入动画
     Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      Animated.timing(overlayOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
     ]).start();
   };
 
   const handleCloseCard = () => {
-    // 执行退出动画
     Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: height,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayOpacity, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }),
+      Animated.timing(slideAnim, { toValue: height, duration: 250, useNativeDriver: true }),
+      Animated.timing(overlayOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
     ]).start(() => {
       setIsCardVisible(false);
       setSelectedWord(null);
     });
   };
 
-  // 计算进度
-  const currentCount = words.length;
-  const progressPercentage = Math.min((currentCount / MAX_WORDS) * 100, 100);
-  const isNearLimit = currentCount >= MAX_WORDS * 0.8; // 80% 时显示警告
-  const isAtLimit = currentCount >= MAX_WORDS;
+  const handleWordSaved = (savedWord: IWord) => {
+    console.log(`🔄 Vocabulary list received save event for: ${savedWord.word}`);
+    loadVocabulary();
+    handleCloseCard();
+  };
 
-  const renderProgressSection = () => (
-    <View style={styles.progressSection}>
-      <View style={styles.progressHeader}>
-        <View style={styles.progressInfo}>
-          <Text style={styles.progressTitle}>学习进度</Text>
+  const renderProgressSection = () => {
+    const currentCount = words.length;
+    const nextMilestone = MILESTONES.find(m => currentCount < m.count) || MILESTONES[MILESTONES.length - 1];
+    const prevMilestoneCount = MILESTONES.slice().reverse().find(m => currentCount >= m.count)?.count || 0;
+    const progressTowardNext = nextMilestone.count - prevMilestoneCount;
+    const userProgress = currentCount - prevMilestoneCount;
+    const progressPercentage = progressTowardNext > 0 ? Math.min((userProgress / progressTowardNext) * 100, 100) : (currentCount >= nextMilestone.count ? 100 : 0);
+
+    return (
+      <View style={styles.progressSection}>
+        <Text style={styles.progressTitle}>学习进度</Text>
+        <View style={styles.progressDisplay}>
           <View style={styles.progressCount}>
-            <Text style={[
-              styles.currentCount, 
-              isAtLimit && styles.currentCountLimit
-            ]}>
-              {currentCount}
-            </Text>
-            <Text style={styles.maxCount}>/{MAX_WORDS}</Text>
+            <Text style={styles.currentCount}>{currentCount}</Text>
+            <Text style={styles.maxCount}>/ {nextMilestone.count}</Text>
+          </View>
+          <View style={styles.progressBarContainer}>
+            <View style={styles.progressBarTrack}>
+              <View 
+                style={[
+                  styles.progressBarFill, 
+                  { width: `${progressPercentage}%` }
+                ]} 
+              />
+            </View>
           </View>
         </View>
         
-        <View style={styles.progressIcon}>
-          {isAtLimit ? (
-            <Feather name="award" size={20} color="#F59E0B" />
-          ) : (
-            <Feather name="target" size={20} color="#3B82F6" />
-          )}
-        </View>
-      </View>
-
-      {/* 进度条 */}
-      <View style={styles.progressBarContainer}>
-        <View style={styles.progressBarTrack}>
-          <View 
-            style={[
-              styles.progressBarFill, 
-              { 
-                width: `${progressPercentage}%`,
-                backgroundColor: isAtLimit ? '#F59E0B' : 
-                                isNearLimit ? '#F97316' : '#3B82F6'
-              }
-            ]} 
-          />
-        </View>
-        <Text style={[
-          styles.progressPercentage,
-          isAtLimit && styles.progressPercentageLimit
-        ]}>
-          {Math.round(progressPercentage)}%
-        </Text>
-      </View>
-
-      {/* 🎯 下一个里程碑提示 */}
-      {nextMilestone && (
-        <View style={styles.milestoneHint}>
-          <View style={styles.milestoneHintContent}>
-            <Feather name="award" size={16} color="#F59E0B" />
-            <Text style={styles.milestoneHintText}>
-              再收录 {nextMilestone.remaining} 个单词达成下一里程碑！
-            </Text>
-          </View>
-          <View style={styles.milestoneProgress}>
-            <View style={styles.milestoneProgressTrack}>
-              <View 
-                style={[
-                  styles.milestoneProgressFill,
-                  { width: `${nextMilestone.progress}%` }
-                ]}
+        <View style={styles.achievementsSection}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.achievementsScroll}>
+            {MILESTONES.map((milestone) => (
+              <AchievementBadge
+                key={milestone.level}
+                level={milestone.level}
+                count={milestone.count}
+                achieved={words.length >= milestone.count}
+                size={75}
               />
-            </View>
-            <Text style={styles.milestoneProgressText}>
-              {nextMilestone.count} 词目标
-            </Text>
-          </View>
+            ))}
+          </ScrollView>
         </View>
-      )}
-    </View>
-  );
+      </View>
+    );
+  };
 
-  const renderWordItem = ({ item }: { item: Word }) => (
+  const renderWordItem = ({ item }: { item: IWord }) => (
     <TouchableOpacity
       style={styles.wordItem}
       onPress={() => handleWordPress(item)}
@@ -190,7 +143,10 @@ export default function VocabularyScreen() {
         <View style={styles.wordInfo}>
           <Text style={styles.wordText}>{item.word}</Text>
           <Text style={styles.translationText} numberOfLines={1}>
-            {item.chineseTranslations.join(' · ')}
+            {item.meanings && item.meanings.length > 0 
+              ? item.meanings.map(m => m.definitionCn).filter(Boolean).join(' · ')
+              : '暂无释义'
+            }
           </Text>
         </View>
         
@@ -201,22 +157,11 @@ export default function VocabularyScreen() {
             </View>
           )}
           
-          <View style={[
-            styles.difficultyBadge,
-            item.difficulty >= 4 && styles.difficultyBadgeHard
-          ]}>
-            <Text style={[
-              styles.difficultyText,
-              item.difficulty >= 4 && styles.difficultyTextHard
-            ]}>
-              {item.difficulty === 1 ? '基础' : 
-               item.difficulty === 2 ? '简单' :
-               item.difficulty === 3 ? '中等' :
-               item.difficulty === 4 ? '困难' : '高级'}
+          <View style={styles.difficultyIndicator}>
+            <Text style={styles.difficultyText}>
+              {item.difficulty || 1}
             </Text>
           </View>
-          
-          <Feather name="chevron-right" size={16} color="#CCCCCC" />
         </View>
       </View>
     </TouchableOpacity>
@@ -244,7 +189,6 @@ export default function VocabularyScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* 进度条区域 */}
       {renderProgressSection()}
 
       {/* 单词列表 */}
@@ -256,7 +200,7 @@ export default function VocabularyScreen() {
         <FlatList
           data={words}
           renderItem={renderWordItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item._id}
           style={styles.wordsList}
           contentContainerStyle={[
             styles.wordsListContent,
@@ -316,9 +260,7 @@ export default function VocabularyScreen() {
                 <WordCard
                   word={selectedWord}
                   showAnswer={true} // 直接显示背面内容
-                  onWordSaved={() => {
-                    // 单词已在列表中，不需要额外操作
-                  }}
+                  onWordSaved={handleWordSaved}
                 />
               )}
             </View>
@@ -354,6 +296,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
   },
   
+  achievementsSection: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderColor: '#F3F4F6',
+    paddingTop: 16,
+  },
+  achievementsScroll: {
+    paddingHorizontal: 4,
+  },
+
   // 进度条样式
   progressSection: {
     backgroundColor: '#FFFFFF',
@@ -366,118 +318,52 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 12,
     elevation: 2,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     marginBottom: 16,
   },
-  progressInfo: {
-    flex: 1,
+  progressDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
   },
   progressTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#111111',
-    marginBottom: 8,
   },
   progressCount: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    marginRight: 12,
   },
   currentCount: {
     fontSize: 32,
     fontWeight: '700',
-    color: '#3B82F6',
+    color: '#111827',
     letterSpacing: -1,
-  },
-  currentCountLimit: {
-    color: '#F59E0B',
   },
   maxCount: {
     fontSize: 18,
     fontWeight: '500',
-    color: '#999999',
-    marginLeft: 2,
-  },
-  progressIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F8F9FA',
-    justifyContent: 'center',
-    alignItems: 'center',
+    color: '#9CA3AF',
+    marginLeft: 4,
+    marginBottom: 2,
   },
   progressBarContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
   },
   progressBarTrack: {
     flex: 1,
     height: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#E5E7EB',
     borderRadius: 4,
-    marginRight: 12,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
     borderRadius: 4,
-  },
-  progressPercentage: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#3B82F6',
-    minWidth: 40,
-    textAlign: 'right',
-  },
-  progressPercentageLimit: {
-    color: '#F59E0B',
-  },
-
-  // 🎯 里程碑提示样式
-  milestoneHint: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  milestoneHintContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  milestoneHintText: {
-    fontSize: 14,
-    color: '#92400E',
-    fontWeight: '500',
-    marginLeft: 8,
-    flex: 1,
-  },
-  milestoneProgress: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  milestoneProgressTrack: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#FDE68A',
-    borderRadius: 3,
-    marginRight: 12,
-    overflow: 'hidden',
-  },
-  milestoneProgressFill: {
-    height: '100%',
-    backgroundColor: '#F59E0B',
-    borderRadius: 3,
-  },
-  milestoneProgressText: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '600',
+    backgroundColor: '#3B82F6',
   },
 
   loadingContainer: {
@@ -544,7 +430,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  difficultyBadge: {
+  difficultyIndicator: {
     backgroundColor: '#F0F9FF',
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -553,17 +439,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0F2FE',
   },
-  difficultyBadgeHard: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
-  },
   difficultyText: {
     fontSize: 11,
     color: '#0369A1',
     fontWeight: '600',
-  },
-  difficultyTextHard: {
-    color: '#D97706',
   },
   separator: {
     height: 8,

@@ -8,10 +8,10 @@ import SearchBar from '@/components/SearchBar';
 import WordCard from '@/components/WordCard';
 import CelebrationModal from '@/components/CelebrationModal';
 import { wordService } from '@/services/wordService';
-import { Word } from '@/types/word';
+import { IWord } from '@/types/word';
 
 export default function SearchScreen() {
-  const [currentWord, setCurrentWord] = useState<Word | null>(null);
+  const [currentWord, setCurrentWord] = useState<IWord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -41,9 +41,12 @@ export default function SearchScreen() {
       console.log('🔍 Searching for word:', word);
       const wordData = await wordService.fetchWordFullData(word.trim());
       
+      console.log('📋 Received word data:', wordData);
+      
       if (wordData && wordData.word) {
         setCurrentWord(wordData);
         console.log('✅ Word found:', wordData.word);
+        console.log('📝 Current word set:', wordData);
         
         // 🎉 检查是否需要庆祝
         const celebrationResult = await wordService.checkAndTriggerCelebration();

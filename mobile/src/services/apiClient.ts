@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Word } from '@/types/word';
+import { IWord } from '@/types/word';
 
 // API响应类型
 export interface ApiResponse<T = any> {
@@ -24,7 +24,7 @@ class ApiClient {
 
   constructor() {
     // For mobile development, use the computer's IP address instead of localhost
-    const baseURL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.2.59:3000/api';
+    const baseURL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
     this.axiosInstance = axios.create({
       baseURL,
       timeout: 10000,
@@ -69,9 +69,24 @@ class ApiClient {
   // 通用GET请求
   public async get<T>(url: string, params?: any): Promise<T | null> {
     try {
-      const response = await this.axiosInstance.get<ApiResponse<T>>(url, { params });
-      return response.data.data ?? null;
+      console.log(`🔍 Making GET request to: ${this.axiosInstance.defaults.baseURL}${url}`);
+      const response = await this.axiosInstance.get(url, { params });
+      
+      console.log(`✅ GET response received:`, response.status, response.data);
+      
+      // 检查响应格式：如果是包装格式 {success: true, data: {...}}
+      if (response.data && typeof response.data === 'object' && 'success' in response.data) {
+        return response.data.data ?? null;
+      }
+      
+      // 直接返回数据对象
+      return response.data ?? null;
     } catch (error) {
+      console.error(`❌ GET request failed for ${url}:`, error);
+      if (axios.isAxiosError(error)) {
+        console.error('Response data:', error.response?.data);
+        console.error('Response status:', error.response?.status);
+      }
       this.handleError(error);
       throw error;
     }
@@ -80,9 +95,24 @@ class ApiClient {
   // 通用POST请求
   async post<T>(url: string, data?: any): Promise<T> {
     try {
+      console.log(`🔍 Making POST request to: ${this.axiosInstance.defaults.baseURL}${url}`);
       const response = await this.axiosInstance.post<ApiResponse<T>>(url, data);
-      return response.data.data!;
+      
+      console.log(`✅ POST response received:`, response.status, response.data);
+      
+      // 检查响应格式
+      if (response.data && typeof response.data === 'object' && 'success' in response.data) {
+        return response.data.data!;
+      }
+      
+      // 直接返回数据
+      return response.data as T;
     } catch (error) {
+      console.error(`❌ POST request failed for ${url}:`, error);
+      if (axios.isAxiosError(error)) {
+        console.error('Response data:', error.response?.data);
+        console.error('Response status:', error.response?.status);
+      }
       throw this.handleError(error);
     }
   }
@@ -163,14 +193,14 @@ class ApiClient {
     await AsyncStorage.setItem(key, JSON.stringify(value));
   }
   
-  async getAllWords(): Promise<Word[]> {
+  async getAllWords(): Promise<IWord[]> {
     const wordsJson = await this.localGet(WORD_STORAGE_KEY);
     return wordsJson || [];
   }
 
-  async saveWord(word: Word): Promise<void> {
+  async saveWord(word: IWord): Promise<void> {
     const words = await this.getAllWords();
-    const existingIndex = words.findIndex(w => w.id === word.id);
+    const existingIndex = words.findIndex(w => w._id === word._id);
     if (existingIndex > -1) {
       words[existingIndex] = word;
     } else {
@@ -179,9 +209,9 @@ class ApiClient {
     await this.localSet(WORD_STORAGE_KEY, words);
   }
 
-  async getWord(wordId: string): Promise<Word | null> {
+  async getWord(wordId: string): Promise<IWord | null> {
     const words = await this.getAllWords();
-    return words.find(w => w.id === wordId) || null;
+    return words.find(w => w._id === wordId) || null;
   }
 
   async clear(): Promise<void> {

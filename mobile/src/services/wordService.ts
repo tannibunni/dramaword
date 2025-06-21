@@ -1,12 +1,12 @@
-import { Word, WordSearchResult, StudySession } from '../types/word';
+import { IWord, WordSearchResult, StudySession } from '../types/word';
 import { apiClient } from './apiClient';
 
 class WordService {
   // 获取单词完整数据
-  async fetchWordFullData(word: string): Promise<Word | null> {
+  async fetchWordFullData(word: string): Promise<IWord | null> {
     try {
       console.log(`🔍 Fetching word data for: "${word}"`);
-      const wordData = await apiClient.get<Word>(`/words/${word}`);
+      const wordData = await apiClient.get<IWord>(`/words/${word}`);
       return wordData;
     } catch (error) {
       console.error('❌ Fetch word data error:', error);
@@ -31,11 +31,11 @@ class WordService {
         .filter(
           w =>
             (w.word && w.word.toLowerCase().startsWith(query.toLowerCase())) ||
-            (w.chineseTranslations && w.chineseTranslations.some(t => t.includes(query)))
+            (w.meanings && w.meanings.some(m => m.definitionCn && m.definitionCn.includes(query)))
         )
         .map(w => ({
           word: w.word,
-          translations: w.chineseTranslations || [], // Ensure translations is always an array
+          translations: w.meanings?.map(m => m.definitionCn).filter((t): t is string => Boolean(t)) || [], // Ensure only strings
           frequency: Math.floor(Math.random() * 100),
         }));
         
@@ -47,7 +47,7 @@ class WordService {
   }
 
   // 获取用户所有单词
-  async getAllWords(): Promise<Word[]> {
+  async getAllWords(): Promise<IWord[]> {
     try {
       // 始终先从本地获取
       const localWords = await apiClient.getAllWords();
@@ -63,9 +63,9 @@ class WordService {
     }
   }
 
-  async getAllWordsFromApi(): Promise<Word[]> {
+  async getAllWordsFromApi(): Promise<IWord[]> {
     try {
-      const words = await apiClient.get<Word[]>('/words/user');
+      const words = await apiClient.get<IWord[]>('/words/user');
       console.log(`📚 Retrieved ${words?.length || 0} words from API`);
       // API可能返回null，确保返回数组
       return words || [];
@@ -76,9 +76,9 @@ class WordService {
   }
 
   // 根据ID获取单词
-  async getWordById(id: string): Promise<Word | null> {
+  async getWordById(id: string): Promise<IWord | null> {
     try {
-      const word = await apiClient.get<Word>(`/words/id/${id}`);
+      const word = await apiClient.get<IWord>(`/words/id/${id}`);
       return word;
     } catch (error) {
       console.error('Get word by ID error:', error);
@@ -87,10 +87,10 @@ class WordService {
   }
 
   // 获取需要复习的单词
-  async getReviewWords(): Promise<Word[]> {
+  async getReviewWords(): Promise<IWord[]> {
     try {
-      const words = await apiClient.get<Word[]>('/words/review');
-      return words;
+      const words = await apiClient.get<IWord[]>('/words/review');
+      return words || [];
     } catch (error) {
       console.error('Get review words error:', error);
       return [];
@@ -111,10 +111,12 @@ class WordService {
   }
 
   // 保存单词到用户词库
-  async saveWord(word: Word): Promise<void> {
+  async saveWord(word: IWord): Promise<IWord> {
     try {
-      await apiClient.post('/words/save', word);
-      console.log(`✅ Word saved: ${word.word}`);
+      console.log(`💾 Saving word: ${word.word}`);
+      const savedWord = await apiClient.post<IWord>('/words', word);
+      console.log(`✅ Word saved successfully: ${word.word}`);
+      return savedWord;
     } catch (error) {
       console.error('Save word error:', error);
       throw error;
@@ -140,8 +142,18 @@ class WordService {
     accuracy: number;
   }> {
     try {
-      const stats = await apiClient.get('/words/stats');
-      return stats;
+      const stats = await apiClient.get<{
+        totalWords: number;
+        knownWords: number;
+        reviewWords: number;
+        accuracy: number;
+      }>('/words/stats');
+      return stats || {
+        totalWords: 0,
+        knownWords: 0,
+        reviewWords: 0,
+        accuracy: 0,
+      };
     } catch (error) {
       console.error('Get study stats error:', error);
       return {
@@ -157,7 +169,7 @@ class WordService {
   async getStudySessions(): Promise<StudySession[]> {
     try {
       const sessions = await apiClient.get<StudySession[]>('/words/sessions');
-      return sessions;
+      return sessions || [];
     } catch (error) {
       console.error('Get study sessions error:', error);
       return [];
@@ -171,8 +183,12 @@ class WordService {
     stats?: any;
   }> {
     try {
-      const result = await apiClient.get('/words/celebration');
-      return result;
+      const result = await apiClient.get<{
+        shouldCelebrate: boolean;
+        milestone?: any;
+        stats?: any;
+      }>('/words/celebration');
+      return result || { shouldCelebrate: false };
     } catch (error) {
       console.error('Check celebration error:', error);
       return { shouldCelebrate: false };
@@ -186,7 +202,11 @@ class WordService {
     progress: number;
   } | null> {
     try {
-      const milestone = await apiClient.get('/words/milestone');
+      const milestone = await apiClient.get<{
+        count: number;
+        remaining: number;
+        progress: number;
+      }>('/words/milestone');
       return milestone;
     } catch (error) {
       console.error('Get milestone error:', error);
@@ -197,8 +217,8 @@ class WordService {
   // 获取已达成里程碑
   async getAchievedMilestones(): Promise<any[]> {
     try {
-      const milestones = await apiClient.get('/words/milestones');
-      return milestones;
+      const milestones = await apiClient.get<any[]>('/words/milestones');
+      return milestones || [];
     } catch (error) {
       console.error('Get milestones error:', error);
       return [];

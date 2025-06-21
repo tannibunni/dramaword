@@ -1,31 +1,22 @@
-export interface WordMeaning {
+export interface IMeaning {
   partOfSpeech: string;
-  definition: string;
-  exampleEn: string;
-  exampleCn: string;
+  definitionCn?: string;
+  example?: string;
+  exampleCn?: string;
 }
 
-export interface Word {
-  id: string;
+export interface IWord {
+  _id: string;
   word: string;
-  phonetic?: string;
+  pronunciation?: string;
   audioUrl?: string;
-  chineseTranslations: string[];
-  meanings: WordMeaning[];
-  derivatives: string[];
-  synonyms: string[];
-  difficulty: 1 | 2 | 3 | 4 | 5;
+  meanings: IMeaning[];
+  difficulty: number;
+  queryCount: number;
+  lastQueried: string;
+  searchTerms: string[];
   createdAt: string;
-  lastReviewed?: string;
-  reviewCount: number;
-  correctCount: number;
-  isKnown: boolean;
-  
-  // 云端同步相关字段
-  cloudSynced?: boolean;
-  lastSynced?: number;
-  lastModified?: number;
-  cloudId?: string;
+  updatedAt: string;
 }
 
 export interface StudySession {
@@ -45,7 +36,7 @@ export interface WordSearchResult {
 export interface CloudWordStats {
   totalWords: number;
   recentWords: number;
-  popularWords: Word[];
+  popularWords: IWord[];
   userContributions: number;
 }
 
