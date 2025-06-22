@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Switch, Alert, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiClient from '@/services/apiClient';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -28,6 +29,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshingIP, setIsRefreshingIP] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -130,8 +132,22 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
     );
   };
 
+  const handleRefreshIP = async () => {
+    try {
+      setIsRefreshingIP(true);
+      await apiClient.refreshIP();
+      Alert.alert('刷新成功', 'IP地址已更新，请重试连接');
+    } catch (error) {
+      console.error('Refresh IP error:', error);
+      Alert.alert('刷新失败', '无法检测到新的IP地址，请检查网络连接');
+    } finally {
+      setIsRefreshingIP(false);
+    }
+  };
+
   const SettingItem = ({ 
     icon: Icon, 
+    iconName,
     title, 
     subtitle, 
     value, 
@@ -141,6 +157,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
     color = '#666666'
   }: {
     icon: any;
+    iconName: string;
     title: string;
     subtitle?: string;
     value?: boolean | string;
@@ -157,7 +174,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
     >
       <View style={styles.settingLeft}>
         <View style={[styles.settingIcon, { backgroundColor: color + '20' }]}>
-          <Icon color={color} size={18} strokeWidth={2} />
+          <Icon name={iconName} color={color} size={18} strokeWidth={2} />
         </View>
         <View style={styles.settingTextContainer}>
           <Text style={styles.settingTitle}>{title}</Text>
@@ -199,7 +216,7 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
           <View style={styles.header}>
             <Text style={styles.title}>设置</Text>
             <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-              <Icon name="close" size={24} color="#666666" />
+              <Feather name="x" size={24} color="#666666" />
             </TouchableOpacity>
           </View>
 
@@ -209,7 +226,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
               <Text style={styles.sectionTitle}>通用设置</Text>
               <View style={styles.settingsContainer}>
                 <SettingItem
-                  icon={Feather.getImageSourceSync('volume-2', 20)}
+                  icon={Feather}
+                  iconName="sound"
                   title="音效"
                   subtitle="开启应用音效和发音"
                   value={settings.soundEnabled}
@@ -218,7 +236,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                 />
                 
                 <SettingItem
-                  icon={Feather.getImageSourceSync('bell', 20)}
+                  icon={Feather}
+                  iconName="bell"
                   title="通知"
                   subtitle="学习提醒和复习通知"
                   value={settings.notificationEnabled}
@@ -227,7 +246,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                 />
                 
                 <SettingItem
-                  icon={Feather.getImageSourceSync('moon', 20)}
+                  icon={Feather}
+                  iconName="moon"
                   title="深色模式"
                   subtitle="跟随系统或手动设置"
                   value={settings.darkMode}
@@ -242,7 +262,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
               <Text style={styles.sectionTitle}>数据同步</Text>
               <View style={styles.settingsContainer}>
                 <SettingItem
-                  icon={Feather.getImageSourceSync('wifi', 20)}
+                  icon={Feather}
+                  iconName="sync"
                   title="自动同步"
                   subtitle="在WiFi环境下自动同步数据"
                   value={settings.autoSync}
@@ -251,7 +272,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                 />
                 
                 <SettingItem
-                  icon={Feather.getImageSourceSync('smartphone', 20)}
+                  icon={Feather}
+                  iconName="download"
                   title="离线模式"
                   subtitle="优先使用本地数据"
                   value={settings.offlineMode}
@@ -266,7 +288,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
               <Text style={styles.sectionTitle}>存储管理</Text>
               <View style={styles.settingsContainer}>
                 <SettingItem
-                  icon={Feather.getImageSourceSync('database', 20)}
+                  icon={Feather}
+                  iconName="hard-drive"
                   title="缓存大小"
                   subtitle="应用占用的存储空间"
                   value={settings.cacheSize}
@@ -275,7 +298,8 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
                 />
                 
                 <SettingItem
-                  icon={Feather.getImageSourceSync('trash', 20)}
+                  icon={Feather}
+                  iconName="trash"
                   title="清除缓存"
                   subtitle="清除临时文件和缓存数据"
                   value={isLoading ? "清除中..." : "立即清除"}
@@ -291,11 +315,29 @@ export default function SettingsModal({ visible, onClose }: SettingsModalProps) 
               <Text style={styles.sectionTitle}>应用信息</Text>
               <View style={styles.settingsContainer}>
                 <SettingItem
-                  icon={Feather.getImageSourceSync('smartphone', 20)}
+                  icon={Feather}
+                  iconName="info"
                   title="应用版本"
                   value="1.0.0"
                   type="info"
                   color="#6B7280"
+                />
+              </View>
+            </View>
+
+            {/* 网络连接 */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>网络连接</Text>
+              <View style={styles.settingsContainer}>
+                <SettingItem
+                  icon={Feather}
+                  iconName="refresh-cw"
+                  title="刷新IP地址"
+                  subtitle="自动检测并更新后端服务器IP"
+                  value={isRefreshingIP ? "检测中..." : "立即刷新"}
+                  type="button"
+                  onPress={handleRefreshIP}
+                  color="#3B82F6"
                 />
               </View>
             </View>

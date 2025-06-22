@@ -18,15 +18,25 @@ import wordRoutes from './routes/words';
 import userRoutes from './routes/users';
 import authRoutes from './routes/auth';
 import reviewRoutes from './routes/reviews';
-import youdaoRoutes from './routes/youdao+api';
+import dramaRoutes from './routes/drama';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 // 安全中间件
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8081',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:8081',
+    'http://localhost:8081',
+    'http://192.168.2.59:8081',
+    'http://192.168.0.233:8081',
+    'exp://192.168.2.59:8081',
+    'exp://192.168.0.233:8081',
+    'http://localhost:3000',
+    'http://192.168.2.59:3000',
+    'http://192.168.0.233:3000'
+  ],
   credentials: true,
 }));
 
@@ -70,7 +80,7 @@ app.use('/api/words', wordRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/reviews', reviewRoutes);
-app.use('/api/youdao', youdaoRoutes);
+app.use('/api/drama', dramaRoutes);
 
 // 404处理
 app.use(notFound);
@@ -86,10 +96,11 @@ async function startServer() {
     console.log('✅ Database connected successfully');
 
     // 启动服务器
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+      console.log(`🌐 Network access: http://0.0.0.0:${PORT}/health`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

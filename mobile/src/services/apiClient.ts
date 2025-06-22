@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { IWord } from '@/types/word';
+import IPDetector, { IPDetectionResult } from './ipDetector';
 
 // API响应类型
 export interface ApiResponse<T = any> {
@@ -18,21 +19,66 @@ export interface ApiError {
 }
 
 const WORD_STORAGE_KEY = 'dramaword_words';
+const API_BASE_URL_KEY = 'dramaword_api_base_url';
 
 class ApiClient {
-  private axiosInstance: AxiosInstance;
+  private axiosInstance!: AxiosInstance;
+  private baseURL: string = '';
 
   constructor() {
-    // For mobile development, use the computer's IP address instead of localhost
-    const baseURL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+    this.initializeClient();
+  }
+
+  // 初始化客户端
+  private async initializeClient() {
+    // 优先使用环境变量
+    if (process.env.EXPO_PUBLIC_API_URL) {
+      this.baseURL = process.env.EXPO_PUBLIC_API_URL;
+      console.log(`🚀 Using environment API URL: ${this.baseURL}`);
+    } else {
+      // 使用IP检测器
+      const result = await IPDetector.detectIP();
+      if (result.success && result.url) {
+        this.baseURL = result.url;
+        console.log(`🚀 Using detected API URL: ${this.baseURL}`);
+      } else {
+        // 回退到默认IP
+        this.baseURL = 'http://192.168.0.233:3000/api';
+        console.log(`⚠️ Using fallback API URL: ${this.baseURL}`);
+      }
+    }
+
+    this.createAxiosInstance();
+  }
+
+  // 创建axios实例
+  private createAxiosInstance() {
     this.axiosInstance = axios.create({
-      baseURL,
-      timeout: 10000,
+      baseURL: this.baseURL,
+      timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
+    this.setupInterceptors();
+  }
+
+  // 设置拦截器
+  private setupInterceptors() {
+    // 请求拦截器
+    this.axiosInstance.interceptors.request.use(
+      (config) => {
+        console.log(`🔍 Making ${config.method?.toUpperCase()} request to: ${config.baseURL}${config.url}`);
+        return config;
+      },
+      (error) => {
+        console.error('❌ Request error:', error);
+        return Promise.reject(error);
+      }
+    );
+
+    // 认证拦截器
     this.axiosInstance.interceptors.request.use(
       async (config) => {
         const token = await AsyncStorage.getItem('user_token');
@@ -55,15 +101,52 @@ class ApiClient {
       async (error: AxiosError<ApiError>) => {
         console.error('❌ Response error:', error.response?.data);
         
+        // 如果是网络错误，尝试重新检测IP
+        if (error.code === 'NETWORK_ERROR' || error.message?.includes('Network Error')) {
+          console.log('🔄 Network error detected, trying to detect new IP...');
+          await this.retryWithNewIP();
+        }
+        
         // 处理401未授权
         if (error.response?.status === 401) {
           await AsyncStorage.removeItem('auth_token');
-          // 可以在这里触发重新登录
         }
         
         return Promise.reject(error);
       }
     );
+  }
+
+  // 使用新IP重试
+  private async retryWithNewIP() {
+    try {
+      const result = await IPDetector.refreshIP();
+      if (result.success && result.url && result.url !== this.baseURL) {
+        console.log(`🔄 Updating API URL from ${this.baseURL} to ${result.url}`);
+        this.baseURL = result.url;
+        this.createAxiosInstance();
+      }
+    } catch (error) {
+      console.error('❌ Failed to update IP:', error);
+    }
+  }
+
+  // 手动刷新IP
+  public async refreshIP(): Promise<IPDetectionResult> {
+    console.log('🔄 Manually refreshing IP...');
+    const result = await IPDetector.refreshIP();
+    
+    if (result.success && result.url) {
+      this.baseURL = result.url;
+      this.createAxiosInstance();
+    }
+    
+    return result;
+  }
+
+  // 获取当前IP信息
+  public async getCurrentIP(): Promise<string | null> {
+    return await IPDetector.getCurrentIP();
   }
 
   // 通用GET请求
@@ -216,6 +299,25 @@ class ApiClient {
 
   async clear(): Promise<void> {
     await AsyncStorage.removeItem(WORD_STORAGE_KEY);
+  }
+
+  // 测试音频URL是否可用
+  async testAudioUrl(audioUrl: string): Promise<boolean> {
+    try {
+      console.log(`🔊 Testing audio URL: ${audioUrl}`);
+      const response = await this.axiosInstance.head(audioUrl.replace(this.axiosInstance.defaults.baseURL || '', ''));
+      console.log(`🔊 Audio URL test result: ${response.status}`);
+      return response.status === 200;
+    } catch (error) {
+      console.error(`🔊 Audio URL test failed:`, error);
+      return false;
+    }
+  }
+
+  // 获取音频URL（用于调试）
+  getAudioUrl(word: string): string {
+    const baseURL = this.axiosInstance.defaults.baseURL?.replace('/api', '') || 'http://localhost:3000';
+    return `${baseURL}/api/words/${word}/audio`;
   }
 }
 

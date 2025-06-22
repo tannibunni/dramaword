@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Text, ActivityIndicator } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, StyleSheet, ScrollView, Text, ActivityIndicator, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,11 +9,14 @@ import WordCard from '@/components/WordCard';
 import CelebrationModal from '@/components/CelebrationModal';
 import { wordService } from '@/services/wordService';
 import { IWord } from '@/types/word';
+import IPDetector from '@/services/ipDetector';
 
 export default function SearchScreen() {
   const [currentWord, setCurrentWord] = useState<IWord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [currentIP, setCurrentIP] = useState<string | null>(null);
   
   // 🎉 庆祝相关状态
   const [showCelebration, setShowCelebration] = useState(false);
@@ -23,6 +26,36 @@ export default function SearchScreen() {
   } | null>(null);
   
   const insets = useSafeAreaInsets();
+
+  // 启动时自动检测IP
+  useEffect(() => {
+    initializeApp();
+  }, []);
+
+  const initializeApp = async () => {
+    try {
+      setIsInitializing(true);
+      console.log('🚀 Initializing app...');
+      
+      // 检测IP
+      const result = await IPDetector.detectIP();
+      if (result.success && result.ip) {
+        setCurrentIP(result.ip);
+        console.log(`✅ App initialized with IP: ${result.ip}`);
+      } else {
+        console.log('⚠️ IP detection failed, using fallback');
+        Alert.alert(
+          '网络连接提示',
+          '无法自动检测到后端服务器，请检查网络连接或在设置中手动刷新IP地址。',
+          [{ text: '确定' }]
+        );
+      }
+    } catch (error) {
+      console.error('❌ App initialization error:', error);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -73,6 +106,22 @@ export default function SearchScreen() {
     // Audio will be handled by the AudioPlayer component within WordCard
   };
 
+  const handleWordSaved = (savedWord: IWord) => {
+    console.log(`✅ Word saved successfully: ${savedWord.word}`);
+    
+    // 检查是否是拼写建议点击
+    if (savedWord.spellingSuggestions && savedWord.spellingSuggestions.length > 0) {
+      // 这是一个拼写建议点击，需要搜索建议的单词
+      console.log(`🔍 Spelling suggestion clicked: ${savedWord.word}`);
+      handleWordSearch(savedWord.word);
+      return;
+    }
+    
+    // 正常的保存逻辑
+    console.log(`💾 Word saved to vocabulary: ${savedWord.word}`);
+    // 可以在这里添加保存成功后的逻辑，比如显示提示或更新状态
+  };
+
   const handleCelebrationClose = () => {
     setShowCelebration(false);
     setCelebrationData(null);
@@ -89,8 +138,10 @@ export default function SearchScreen() {
           </View>
           
           <View style={styles.statusIndicator}>
-            <View style={styles.statusDot} />
-            <Text style={styles.statusText}>在线</Text>
+            <View style={[styles.statusDot, { backgroundColor: currentIP ? '#22C55E' : '#F59E0B' }]} />
+            <Text style={styles.statusText}>
+              {isInitializing ? '初始化中...' : currentIP ? `已连接 ${currentIP}` : '未连接'}
+            </Text>
           </View>
         </View>
       </View>
@@ -146,6 +197,7 @@ export default function SearchScreen() {
             <WordCard 
               word={currentWord} 
               onAudioPlay={handleAudioPlay}
+              onWordSaved={handleWordSaved}
             />
           </View>
         ) : (

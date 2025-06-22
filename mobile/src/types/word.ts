@@ -17,6 +17,7 @@ export interface IWord {
   searchTerms: string[];
   createdAt: string;
   updatedAt: string;
+  spellingSuggestions?: string[];
 }
 
 export interface StudySession {

@@ -23,6 +23,17 @@ export default function AudioPlayer({
   console.log('🔊🔊🔊 size =', size);
   console.log('🔊🔊🔊 color =', color);
   
+  // 添加音频URL调试信息
+  React.useEffect(() => {
+    if (audioUrl) {
+      console.log('🎵 AudioPlayer: Audio URL debug info:');
+      console.log('  - Full URL:', audioUrl);
+      console.log('  - Protocol:', audioUrl.split('://')[0]);
+      console.log('  - Host:', audioUrl.split('://')[1]?.split('/')[0]);
+      console.log('  - Path:', audioUrl.split('://')[1]?.split('/').slice(1).join('/'));
+    }
+  }, [audioUrl]);
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
 
@@ -77,6 +88,11 @@ export default function AudioPlayer({
       // Load and play sound
       console.log('🎵 AudioPlayer: creating sound from URL:', audioUrl);
       
+      // 添加音频URL验证
+      if (!audioUrl.startsWith('http')) {
+        throw new Error('Invalid audio URL format');
+      }
+      
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: audioUrl },
         { shouldPlay: true }
@@ -95,6 +111,7 @@ export default function AudioPlayer({
         // Check if status has error property (for AVPlaybackStatusError)
         if ('error' in status && status.error) {
           console.error('🎵 AudioPlayer: playback status error:', status.error);
+          setIsPlaying(false);
         }
       });
 
@@ -109,10 +126,16 @@ export default function AudioPlayer({
       // Try to provide more specific error messages
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes('no supported source was found')) {
+        console.error('🎵 AudioPlayer: Audio format not supported or URL invalid');
         Alert.alert('播放失败', '音频格式不支持或URL无效，请检查网络连接');
-      } else if (errorMessage.includes('network')) {
+      } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+        console.error('🎵 AudioPlayer: Network error');
         Alert.alert('播放失败', '网络连接错误，请检查网络设置');
+      } else if (errorMessage.includes('timeout')) {
+        console.error('🎵 AudioPlayer: Timeout error');
+        Alert.alert('播放失败', '请求超时，请稍后重试');
       } else {
+        console.error('🎵 AudioPlayer: Unknown error');
         Alert.alert('播放失败', `无法播放该音频: ${errorMessage}`);
       }
       

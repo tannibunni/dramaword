@@ -117,6 +117,19 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="drama"
+        options={{
+          title: '剧单',
+          tabBarIcon: ({ size, color, focused }) => (
+            <Feather 
+              name="play"
+              size={focused ? 22 : 20} 
+              color={color} 
+            />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

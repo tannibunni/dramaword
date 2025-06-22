@@ -1,59 +1,54 @@
-export interface WordMeaning {
+import { Document } from 'mongoose';
+
+export interface IMeaning {
   partOfSpeech: string;
-  definition: string;
-  exampleEn: string;
-  exampleCn: string;
+  definitionCn?: string;
+  example?: string;
+  exampleCn?: string;
 }
 
-export interface Word {
-  id: string;
+export interface IWord {
+  _id?: string; // Changed to optional for unsaved words
   word: string;
-  phonetic?: string;
+  pronunciation?: string;
   audioUrl?: string;
-  chineseTranslations: string[];
-  meanings: WordMeaning[];
-  derivatives: string[];
-  synonyms: string[];
-  difficulty: 1 | 2 | 3 | 4 | 5;
-  createdAt: string;
-  lastReviewed?: string;
-  reviewCount: number;
-  correctCount: number;
-  isKnown: boolean;
-  
-  // 云端同步相关字段
-  cloudSynced?: boolean;
-  lastSynced?: number;
-  lastModified?: number;
-  cloudId?: string;
+  meanings: IMeaning[];
+  difficulty: number;
+  queryCount: number;
+  lastQueried: Date;
+  searchTerms: string[];
+  createdAt?: Date;
+  updatedAt?: Date;
+  spellingSuggestions?: string[]; // 拼写建议字段
+}
+
+// Mongoose document interface
+export interface IWordDocument extends IWord, Document {
+  _id: string; // Mongoose documents always have an _id
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// 添加缺失的类型定义
+export type Word = IWord;
+export type WordMeaning = IMeaning;
+
+export interface WordSearchResult {
+  word: string;
+  meanings: IMeaning[];
+  pronunciation?: string;
+  audioUrl?: string;
 }
 
 export interface StudySession {
   date: string;
   wordsStudied: number;
-  correctAnswers: number;
-  totalAnswers: number;
+  timeSpent: number;
 }
 
-export interface WordSearchResult {
-  word: string;
-  translations: string[];
-  frequency?: number;
-}
-
-// 云端词库统计
-export interface CloudWordStats {
-  totalWords: number;
-  recentWords: number;
-  popularWords: Word[];
-  userContributions: number;
-}
-
-// 同步状态
-export interface SyncStatus {
-  inProgress: boolean;
-  lastSyncTime: number;
-  nextSyncTime: number;
-  pendingUploads: number;
-  pendingDownloads: number;
-}
+export interface MilestoneData {
+  type: string;
+  count: number;
+  achieved: boolean;
+  progress: number;
+} 

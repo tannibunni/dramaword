@@ -113,12 +113,25 @@ class WordService {
   // 保存单词到用户词库
   async saveWord(word: IWord): Promise<IWord> {
     try {
-      console.log(`💾 Saving word: ${word.word}`);
+      console.log(`💾 WordService: Starting to save word: ${word.word}`);
+      console.log(`💾 WordService: Word data:`, JSON.stringify(word, null, 2));
+      
+      // 验证单词数据
+      if (!word || !word.word) {
+        throw new Error('Invalid word data: word is required');
+      }
+
       const savedWord = await apiClient.post<IWord>('/words', word);
-      console.log(`✅ Word saved successfully: ${word.word}`);
+      console.log(`✅ WordService: Word saved successfully: ${word.word}`);
+      console.log(`✅ WordService: Saved word response:`, JSON.stringify(savedWord, null, 2));
       return savedWord;
     } catch (error) {
-      console.error('Save word error:', error);
+      console.error('💾 WordService: Save word error:', error);
+      console.error('💾 WordService: Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : 'No stack trace'
+      });
       throw error;
     }
   }

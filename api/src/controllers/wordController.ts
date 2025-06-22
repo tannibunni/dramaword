@@ -1,43 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { Word } from '../models/Word';
 import axios from 'axios';
+import crypto from 'crypto';
+import { Word } from '../models/Word';
+import { IWord } from '../types/word';
+import { isDBConnected } from '../config/database';
 
-// Free Dictionary API 类型定义
-interface FreeDictionaryResponse {
-  word: string;
-  phonetic?: string;
-  phonetics?: Array<{
-    text?: string;
-    audio?: string;
-  }>;
-  meanings: Array<{
-    partOfSpeech: string;
-    definitions: Array<{
-      definition: string;
-      example?: string;
-      synonyms?: string[];
-    }>;
-  }>;
-}
-
-// 有道 API 类型定义
-interface YoudaoResponse {
-  errorCode: string;
-  query: string;
-  translation?: string[];
-  basic?: {
-    phonetic?: string;
-    'us-phonetic'?: string;
-    'uk-phonetic'?: string;
-    explains?: string[];
-  };
-  web?: Array<{
-    key: string;
-    value: string[];
-  }>;
-}
-
-// OpenAI GPT 响应类型
+// GPT API 响应类型
 interface OpenAIResponse {
   choices: Array<{
     message: {
@@ -46,336 +14,530 @@ interface OpenAIResponse {
   }>;
 }
 
-// 1. Free Dictionary API 调用
-async function fetchFreeDictionary(word: string) {
-  try {
-    console.log(`🔍 Fetching from Free Dictionary API: ${word}`);
-    const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
-    const data: FreeDictionaryResponse[] = response.data;
-    
-    if (!data || data.length === 0) {
-      console.log(`❌ No data found for word: ${word}`);
-      return null;
-    }
-    
-    const wordData = data[0];
-    console.log(`✅ Free Dictionary data received for: ${word}`);
-    return wordData;
-  } catch (error) {
-    console.error(`❌ Free Dictionary API error for ${word}:`, error instanceof Error ? error.message : String(error));
-    return null;
-  }
-}
-
-// 2. 有道 API 调用
-async function fetchYoudao(word: string) {
-  try {
-    console.log(`🔍 Fetching from Youdao API: ${word}`);
-    
-    // 有道 API 配置
-    const appKey = process.env.YOUDAO_APP_ID;
-    const appSecret = process.env.YOUDAO_APP_SECRET;
-    
-    if (!appKey || !appSecret) {
-      console.warn('⚠️ Youdao API credentials not configured, using fallback');
-      return null;
-    }
-    
-    // 有道 API 调用逻辑 - 使用与 /api/youdao 路由相同的方式
-    const salt = Date.now().toString();
-    const str = appKey + word + salt + appSecret;
-    const sign = require('crypto').createHash('md5').update(str).digest('hex');
-    
-    const params = new URLSearchParams({
-      q: word,
-      from: 'en',
-      to: 'zh-CHS',
-      appKey: appKey,
-      salt: salt,
-      sign: sign,
-    });
-
-    const response = await fetch(`https://openapi.youdao.com/api?${params}`);
-    
-    if (!response.ok) {
-      console.error(`Youdao API HTTP error: ${response.status}`);
-      return null;
-    }
-
-    const data: YoudaoResponse = await response.json() as YoudaoResponse;
-
-    // Check for Youdao API specific errors
-    if (data.errorCode && data.errorCode !== '0') {
-      console.warn(`⚠️ Youdao API error code: ${data.errorCode}`);
-      return null;
-    }
-    
-    console.log(`✅ Youdao data received for: ${word}`);
-    return data;
-  } catch (error) {
-    console.error(`❌ Youdao API error for ${word}:`, error instanceof Error ? error.message : String(error));
-    return null;
-  }
-}
-
-// 3. OpenAI GPT API 调用
-async function fetchGPT(word: string, youdaoData: any, freeDictData: any) {
-  try {
-    console.log(`🔍 Fetching from OpenAI GPT API: ${word}`);
-    
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    
-    if (!openaiApiKey) {
-      console.warn('⚠️ OpenAI API key not configured, using fallback');
-      return null;
-    }
-
-    const definitionsForGPT = freeDictData?.meanings?.flatMap((m: any) =>
-      m.definitions.slice(0, 2).map((d: any) => ({
-        partOfSpeech: m.partOfSpeech,
-        definition: d.definition,
-        example: d.example || '',
-      }))
-    ) || [];
-
-    if (definitionsForGPT.length === 0) {
-      console.warn(`⚠️ No definitions found for ${word} to send to GPT.`);
-      return null;
-    }
-    
-    const prompt = `
-请为英语单词 "${word}" 生成结构化的中文学习内容。
-
-你将收到一个包含英文释义和例句的JSON数组。请为数组中的每一项提供对应的中文翻译。
-
-输入数据 (英文释义和例句):
-${JSON.stringify(definitionsForGPT, null, 2)}
-
-任务:
-1.  为每个对象创建一个包含翻译的完整版本，保留原始英文内容。
-2.  将 "definition" 翻译成 "definitionCn"。
-3.  将 "example" 翻译成 "exampleCn"。如果 "example" 为空，"exampleCn" 也为空。
-4.  提供相关的衍生词和同义词。
-
-请严格按照以下JSON格式返回。"meanings"数组的顺序和数量必须与输入数据完全一致：
-{
-  "meanings": [
-    {
-      "partOfSpeech": "词性",
-      "definition": "保留原始英文释义",
-      "definitionCn": "此处为释义的中文翻译",
-      "exampleEn": "保留原始英文例句",
-      "exampleCn": "此处为例句的中文翻译"
-    }
-  ],
-  "derivatives": ["衍生词1", "衍生词2"],
-  "synonyms": ["同义词1", "同义词2"]
-}`;
-
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'gpt-3.5-turbo',
-      messages: [
+// 模拟数据生成函数
+function generateMockWord(word: string): IWord {
+  // 常见单词的真实数据
+  const commonWords: { [key: string]: any } = {
+    'hello': {
+      pronunciation: '/həˈloʊ/',
+      meanings: [
         {
-          role: 'system',
-          content: '你是一个专业的英语词汇专家，请提供准确的中文释义和例句翻译。'
+          partOfSpeech: '感叹词',
+          definitionCn: '你好，喂（用于问候或引起注意）',
+          example: 'Hello, how are you today?',
+          exampleCn: '你好，你今天怎么样？'
         },
         {
-          role: 'user',
-          content: prompt
+          partOfSpeech: '名词',
+          definitionCn: '问候，招呼',
+          example: 'She gave me a friendly hello.',
+          exampleCn: '她友好地向我打招呼。'
+        }
+      ]
+    },
+    'world': {
+      pronunciation: '/wɜːrld/',
+      meanings: [
+        {
+          partOfSpeech: '名词',
+          definitionCn: '世界，地球',
+          example: 'The world is getting smaller with technology.',
+          exampleCn: '随着科技发展，世界变得越来越小。'
+        },
+        {
+          partOfSpeech: '名词',
+          definitionCn: '领域，界',
+          example: 'He is famous in the business world.',
+          exampleCn: '他在商界很有名。'
+        }
+      ]
+    },
+    'example': {
+      pronunciation: '/ɪɡˈzæmpəl/',
+      meanings: [
+        {
+          partOfSpeech: '名词',
+          definitionCn: '例子，实例',
+          example: 'This is a good example of teamwork.',
+          exampleCn: '这是团队合作的好例子。'
+        },
+        {
+          partOfSpeech: '名词',
+          definitionCn: '榜样，模范',
+          example: 'She sets a good example for others.',
+          exampleCn: '她为他人树立了好榜样。'
+        }
+      ]
+    },
+    'celebration': {
+      pronunciation: '/ˌselɪˈbreɪʃn/',
+      meanings: [
+        {
+          partOfSpeech: '名词',
+          definitionCn: '庆祝，庆典',
+          example: 'We had a big celebration for her birthday.',
+          exampleCn: '我们为她的生日举行了盛大的庆祝活动。'
+        }
+      ]
+    },
+    'parody': {
+      pronunciation: '/ˈpærədi/',
+      meanings: [
+        {
+          partOfSpeech: '名词',
+          definitionCn: '滑稽模仿，戏仿',
+          example: 'The movie is a parody of classic horror films.',
+          exampleCn: '这部电影是对经典恐怖片的滑稽模仿。'
+        },
+        {
+          partOfSpeech: '动词',
+          definitionCn: '模仿，戏仿',
+          example: 'They parodied the famous speech.',
+          exampleCn: '他们模仿了那个著名的演讲。'
+        }
+      ]
+    },
+    'prodigy': {
+      pronunciation: '/ˈprɒdɪdʒi/',
+      meanings: [
+        {
+          partOfSpeech: '名词',
+          definitionCn: '神童，天才',
+          example: 'Mozart was a musical prodigy.',
+          exampleCn: '莫扎特是一个音乐神童。'
+        },
+        {
+          partOfSpeech: '名词',
+          definitionCn: '奇才，奇观',
+          example: 'The child is a prodigy in mathematics.',
+          exampleCn: '这个孩子在数学方面是个奇才。'
+        }
+      ]
+    }
+  };
+
+  // 拼写建议映射
+  const spellingSuggestions: { [key: string]: string[] } = {
+    'progady': ['prodigy', 'prognosis', 'prognostic'],
+    'prodagy': ['prodigy', 'prognosis', 'prognostic'],
+    'pragody': ['prodigy', 'parody', 'prognosis'],
+    'helllo': ['hello', 'helo', 'hallo'],
+    'worlld': ['world', 'word', 'would'],
+    'examplle': ['example', 'exemplar', 'exemplary'],
+    'celebrationn': ['celebration', 'celebrating', 'celebratory'],
+    'parodyy': ['parody', 'parodied', 'parodist']
+  };
+
+  // 如果单词在常见单词列表中，使用真实数据
+  if (commonWords[word.toLowerCase()]) {
+    const data = commonWords[word.toLowerCase()];
+    return {
+      _id: `mock_${Date.now()}`,
+      word: word,
+      pronunciation: data.pronunciation,
+      meanings: data.meanings,
+      audioUrl: `${process.env.API_BASE_URL || 'http://localhost:3000'}/api/words/${word}/audio`,
+      difficulty: 1,
+      queryCount: 1,
+      lastQueried: new Date(),
+      searchTerms: [word],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  // 检查是否有拼写建议
+  const suggestions = spellingSuggestions[word.toLowerCase()];
+  if (suggestions) {
+    return {
+      _id: `mock_${Date.now()}`,
+      word: word,
+      pronunciation: `/${word}/`,
+      meanings: [
+        {
+          partOfSpeech: '拼写建议',
+          definitionCn: `未找到单词 "${word}"，您是否想查询以下单词？`,
+          example: `建议查询: ${suggestions.join(', ')}`,
+          exampleCn: `可能的正确拼写: ${suggestions.join(', ')}`
         }
       ],
-      temperature: 0.7,
-      max_tokens: 1000
-    }, {
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json'
+      audioUrl: '',
+      difficulty: 1,
+      queryCount: 1,
+      lastQueried: new Date(),
+      searchTerms: [word, ...suggestions],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      spellingSuggestions: suggestions, // 添加拼写建议字段
+    };
+  }
+
+  // 对于其他未知单词，生成基本结构
+  return {
+    _id: `mock_${Date.now()}`,
+    word: word,
+    pronunciation: `/${word}/`,
+    meanings: [
+      {
+        partOfSpeech: '未找到',
+        definitionCn: `未找到单词 "${word}" 的定义`,
+        example: `请检查拼写是否正确，或尝试搜索其他相关单词`,
+        exampleCn: `建议检查拼写或尝试其他搜索词`
       }
-    });
-    
+    ],
+    audioUrl: '',
+    difficulty: 1,
+    queryCount: 1,
+    lastQueried: new Date(),
+    searchTerms: [word],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
+// 模拟用户词汇列表
+function generateMockUserWords(): IWord[] {
+  return [
+    generateMockWord('hello'),
+    generateMockWord('world'),
+    generateMockWord('example'),
+    generateMockWord('celebration'),
+  ];
+}
+
+async function fetchWordData(word: string): Promise<Partial<IWord> | null> {
+  console.log(`🔍 Fetching word data from GPT: ${word}`);
+  const openaiApiKey = process.env.OPENAI_API_KEY;
+
+  if (!openaiApiKey) {
+    console.warn('⚠️ OpenAI API key not configured');
+    return null;
+  }
+
+  const prompt = `
+You are a helpful assistant for a language learning app.
+For the English word or phrase "${word}", please provide the following information in a JSON object format.
+If the word or phrase is misspelled or does not exist, return a JSON object with an empty "meanings" array, and a "spellingSuggestions" array with up to 3 possible correct words or phrases, like this: {"word": "${word}", "meanings": [], "spellingSuggestions": ["prodigy", "parody"]}.
+
+The JSON object should have the following structure:
+{
+  "word": "${word}",
+  "pronunciation": "string (phonetic spelling, if applicable)",
+  "meanings": [
+    {
+      "partOfSpeech": "string (The part of speech in Chinese, e.g., 名词, 动词, 形容词, 短语, 习语等)",
+      "definitionCn": "string (The primary Chinese definition)",
+      "example": "string (An example sentence in English)",
+      "exampleCn": "string (The Chinese translation of the example sentence)"
+    }
+  ],
+  "spellingSuggestions": ["string", ...] // Only present if the word or phrase is not found or is misspelled
+}
+
+- The input may be a single word, a phrase, a fixed expression, or an idiom.
+- For the "meanings" array, provide up to 3 of the most common and important meanings or usages.
+- For "definitionCn", prioritize the most direct and common Chinese translation(s) first.
+- For each meaning, prioritize the most common definition and example.
+- The partOfSpeech can be "短语", "习语", "固定搭配" etc. for phrases.
+- If the word or phrase is not found, provide up to 3 spelling suggestions in the "spellingSuggestions" array.
+`;
+
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert in English vocabulary and translation. Provide the response strictly in the requested JSON format. Do not include any extra text, explanations, or markdown formatting.'
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 1500,
+        response_format: { type: "json_object" },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
     const data: OpenAIResponse = response.data;
     const content = data.choices[0]?.message?.content;
-    
+
     if (!content) {
       console.warn('⚠️ No content received from GPT');
       return null;
     }
-    
-    // 解析 JSON 响应
-    try {
-      const gptData = JSON.parse(content);
-      console.log(`✅ GPT data received for: ${word}`);
-      return gptData;
-    } catch (parseError) {
-      console.warn('⚠️ Failed to parse GPT response as JSON');
-      return null;
+
+    const gptData = JSON.parse(content) as Partial<IWord>;
+    console.log(`✅ GPT data received for: ${word}`);
+
+    if (!gptData.word || (!gptData.meanings && !gptData.spellingSuggestions)) {
+        console.warn('⚠️ GPT response is missing required fields.');
+        return null;
     }
+    
+    return gptData;
+
   } catch (error) {
-    console.error(`❌ OpenAI GPT API error for ${word}:`, error instanceof Error ? error.message : String(error));
+    console.error(`❌ OpenAI GPT API error for ${word}:`);
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('Axios error response:', error.response.data);
+    } else {
+      console.error(error);
+    }
     return null;
   }
 }
 
-// 4. 合并数据
-function mergeWordData(word: string, youdaoData: any, freeDictData: any, gptData: any) {
-  console.log(`🔄 Merging data for word: ${word}`);
-  
-  // 从有道 API 提取数据
-  const phonetic = youdaoData?.basic?.phonetic || 
-                   youdaoData?.basic?.['us-phonetic'] || 
-                   youdaoData?.basic?.['uk-phonetic'] || 
-                   freeDictData?.phonetic || '';
-  
-  const chineseTranslations = youdaoData?.translation || [];
-  
-  // 从 Free Dictionary 提取数据
-  const audioUrl = freeDictData?.phonetics?.find((p: any) => p.audio)?.audio || '';
-  
-  let meanings: any[] = [];
-  
-  if (gptData?.meanings && gptData.meanings.length > 0) {
-    // 理想情况：GPT提供了完整的、包含翻译的释义
-    meanings = gptData.meanings;
-  } else {
-    // 备用方案：如果GPT失败，则使用其他数据源
-    if (youdaoData?.basic?.explains) {
-      // 使用有道词典的中文释义（但没有例句）
-      meanings = youdaoData.basic.explains.map((explain: string) => {
-        const match = explain.match(/^([a-z]+\.)\s*(.+)$/);
-        return {
-          partOfSpeech: match ? match[1].replace('.', '') : '释义',
-          definition: '', // 英文释义为空
-          definitionCn: match ? match[2] : explain,
-          exampleEn: '',
-          exampleCn: '',
-        };
-      });
-    } else if (freeDictData?.meanings) {
-      // 使用Free Dictionary的英文内容（没有中文）
-      meanings = freeDictData.meanings.flatMap((m: any) =>
-        m.definitions.map((d: any) => ({
-          partOfSpeech: m.partOfSpeech,
-          definition: d.definition,
-          definitionCn: '',
-          exampleEn: d.example || '',
-          exampleCn: '',
-        }))
-      );
-    }
-  }
-  
-  // 从 GPT 提取数据
-  const derivatives = gptData?.derivatives || [];
-  
-  // 如果 GPT 没有数据，从 Free Dictionary 提取同义词作为兜底
-  const fallbackSynonyms = freeDictData?.meanings?.flatMap((meaning: any) => 
-    meaning.definitions?.flatMap((def: any) => def.synonyms || []) || []
-  ) || [];
-  
-  const synonyms = gptData?.synonyms?.length > 0 ? gptData.synonyms : fallbackSynonyms;
-  
-  const merged = {
-    word: word.toLowerCase(),
-    phonetic,
-    audioUrl,
-    chineseTranslations,
-    meanings,
-    derivatives,
-    synonyms,
-    difficulty: 3,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    queryCount: 1,
-    lastQueried: new Date(),
-    searchTerms: [word.toLowerCase()],
-  };
-  
-  console.log(`✅ Data merged successfully for: ${word}`);
-  return merged;
-}
-
 export const getWord = async (req: Request, res: Response, next: NextFunction) => {
+  const wordText = req.params.word.toLowerCase();
+  
   try {
-    const wordText = req.params.word;
     console.log(`🚀 Starting word lookup for: "${wordText}"`);
-    
-    // 1. 查库
+
+    // 检查数据库连接
+    if (!isDBConnected()) {
+      console.log('⚠️ Database not connected, using mock data');
+      const mockWord = generateMockWord(wordText);
+      return res.status(200).json(mockWord);
+    }
+
+    // 1. Check database
     console.log('1️⃣ Checking database...');
-    let word = await Word.findOne({ word: wordText.toLowerCase() });
+    let word = await Word.findOne({ word: wordText });
+    
     if (word) {
       console.log(`✅ Word found in database: ${wordText}`);
-      return res.status(200).json({ success: true, data: word });
+      word.queryCount = (word.queryCount || 1) + 1;
+      word.lastQueried = new Date();
+      await word.save();
+      return res.status(200).json(word);
+    }
+
+    console.log(`❌ Word not found in database: ${wordText}`);
+
+    // 2. Fetch from GPT
+    console.log('2️⃣ Fetching from external APIs...');
+    const gptData = await fetchWordData(wordText);
+
+    if (!gptData) {
+      return res.status(500).json({ error: 'Failed to fetch word data' });
     }
     
-    console.log(`❌ Word not found in database: ${wordText}`);
+    // 如果GPT返回拼写建议（即使meanings为空），直接返回
+    if (gptData.spellingSuggestions && Array.isArray(gptData.spellingSuggestions) && gptData.spellingSuggestions.length > 0) {
+      const suggestionWord: IWord = {
+        _id: `temp_${Date.now()}`,
+        word: gptData.word || wordText,
+        pronunciation: gptData.pronunciation || '',
+        meanings: gptData.meanings || [],
+        audioUrl: '',
+        difficulty: 1,
+        queryCount: 0,
+        lastQueried: new Date(),
+        searchTerms: [wordText],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        spellingSuggestions: gptData.spellingSuggestions,
+      };
+      return res.status(200).json(suggestionWord);
+    }
     
-    // 2. 外部 API 聚合
-    console.log('2️⃣ Fetching from external APIs...');
-    const [youdaoData, freeDictData] = await Promise.allSettled([
-      fetchYoudao(wordText),
-      fetchFreeDictionary(wordText)
-    ]);
+    if (!gptData.meanings || gptData.meanings.length === 0) {
+        console.log(`❌ Word "${wordText}" not found or no definitions provided, and no spelling suggestions.`);
+        return res.status(404).json({ message: `Word not found: ${wordText}` });
+    }
+
+    // 3. Return the unsaved word data. The user can choose to save it explicitly.
+    console.log(`✅ Word lookup completed, returning unsaved data for: ${wordText}`);
     
-    const youdaoResult = youdaoData.status === 'fulfilled' ? youdaoData.value : null;
-    const freeDictResult = freeDictData.status === 'fulfilled' ? freeDictData.value : null;
-    
-    console.log('📊 API Results:', {
-      youdao: !!youdaoResult,
-      freeDict: !!freeDictResult
-    });
-    
-    // 3. GPT 补全
-    console.log('3️⃣ Completing with GPT...');
-    const gptData = await fetchGPT(wordText, youdaoResult, freeDictResult);
-    
-    // 4. 合并数据
-    console.log('4️⃣ Merging data sources...');
-    const merged = mergeWordData(wordText, youdaoResult, freeDictResult, gptData);
-    
-    // 5. 存库
-    console.log('5️⃣ Saving to database...');
-    const saved = await Word.create(merged);
-    
-    console.log(`✅ Word lookup completed successfully: ${wordText}`);
-    return res.status(200).json({ success: true, data: saved });
-    
+    // Create a temporary word object that matches the IWord interface
+    const unsavedWord: IWord = {
+      _id: `temp_${Date.now()}`,
+      word: gptData.word || wordText,
+      pronunciation: gptData.pronunciation,
+      meanings: gptData.meanings,
+      audioUrl: `${req.protocol}://${req.get('host')}/api/words/${wordText}/audio`,
+      difficulty: 1,
+      queryCount: 0,
+      lastQueried: new Date(),
+      searchTerms: [wordText],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Return the temporary plain object.
+    return res.status(200).json(unsavedWord);
+
   } catch (error) {
-    console.error('❌ Word lookup failed:', error);
-    return next(error);
+    console.error(`❌ Word lookup failed for "${wordText}":`, error);
+    next(error); // Pass error to the central error handler
+    return;
   }
 };
 
+// Save a new word to the user's vocabulary
+export const saveWord = async (req: Request, res: Response, next: NextFunction) => {
+  const wordData = req.body as IWord;
+
+  try {
+    console.log(`💾 Backend: Received save request for word: "${wordData.word}"`);
+
+    // 检查数据库连接
+    if (!isDBConnected()) {
+      console.log('⚠️ Database not connected, simulating save success');
+      const mockWord = generateMockWord(wordData.word);
+      return res.status(201).json(mockWord);
+    }
+
+    console.log(`💾 Backend: Word data:`, JSON.stringify(wordData, null, 2));
+
+    // 验证请求数据
+    if (!wordData || !wordData.word) {
+      console.error('💾 Backend: Invalid word data received');
+      return res.status(400).json({ error: 'Word data is required' });
+    }
+
+    // Check if the word already exists
+    const existingWord = await Word.findOne({ word: wordData.word });
+    if (existingWord) {
+      console.log(`ℹ️ Backend: Word "${wordData.word}" already exists. Returning existing word.`);
+      return res.status(200).json(existingWord);
+    }
+
+    console.log(`💾 Backend: Saving new word: "${wordData.word}"`);
+
+    // 准备保存的数据，确保字段正确
+    const wordToSave = {
+      word: wordData.word,
+      pronunciation: wordData.pronunciation || '',
+      meanings: wordData.meanings || [],
+      audioUrl: wordData.audioUrl || '',
+      difficulty: wordData.difficulty || 1,
+      queryCount: 1, // First time saving
+      lastQueried: new Date(),
+      searchTerms: wordData.searchTerms || [wordData.word],
+    };
+
+    console.log(`💾 Backend: Prepared word data for saving:`, JSON.stringify(wordToSave, null, 2));
+
+    // Create a new Mongoose document and save it
+    const newWord = new Word(wordToSave);
+    await newWord.save();
+    
+    console.log(`✅ Backend: Word saved successfully: "${wordData.word}"`);
+    console.log(`✅ Backend: Saved word:`, JSON.stringify(newWord.toObject(), null, 2));
+    
+    return res.status(201).json(newWord);
+
+  } catch (error) {
+    console.error(`❌ Backend: Failed to save word "${wordData?.word}":`, error);
+    console.error(`❌ Backend: Error details:`, {
+      name: error instanceof Error ? error.name : 'Unknown',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : 'No stack trace'
+    });
+    next(error);
+    return;
+  }
+};
+
+/*
+// TODO: searchWord logic needs to be re-evaluated based on current models.
 export const searchWord = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const query = req.query.query as string;
     if (!query) {
-      return res.status(400).json({ success: false, message: 'Query parameter is required' });
+      return res.status(400).json({ message: 'Query parameter is required' });
     }
     
-    // Mocking search results to avoid real API calls for now
-    const mockResults = [
-      { word: query, translations: ['模拟释义1', '模拟释义2'] },
-      { word: `${query}ing`, translations: ['模拟进行时态'] },
-    ];
+    const gptData = await fetchWordData(query);
     
-    return res.status(200).json({ success: true, data: mockResults });
+    if (!gptData || !gptData.meanings || gptData.meanings.length === 0) {
+      return res.status(404).json({ 
+        message: `无法找到单词 "${query}" 的相关信息` 
+      });
+    }
+    
+    return res.status(200).json(gptData);
   } catch (error) {
     return next(error);
   }
 };
+*/
 
-// 获取用户所有单词
+// Get all words for the user
 export const getUserWords = async (req: Request, res: Response, next: NextFunction) => {
   try {
     console.log('📚 Getting all user words...');
     
-    // 从数据库获取所有单词
-    const words = await Word.find().sort({ createdAt: -1 });
+    // 检查数据库连接
+    if (!isDBConnected()) {
+      console.log('⚠️ Database not connected, returning mock user words');
+      const mockWords = generateMockUserWords();
+      return res.status(200).json(mockWords);
+    }
     
+    const words = await Word.find().sort({ createdAt: -1 });
     console.log(`✅ Found ${words.length} words for user`);
-    return res.status(200).json({ success: true, data: words });
+    return res.status(200).json(words);
   } catch (error) {
     console.error('❌ Get user words failed:', error);
-    return next(error);
+    next(error);
+    return;
+  }
+};
+
+// 音频代理端点 - 已切换到 Google TTS
+export const proxyAudio = async (req: Request, res: Response, next: NextFunction) => {
+  const { word } = req.params;
+  
+  if (!word) {
+    return res.status(400).json({ error: 'Word parameter is required' });
+  }
+
+  try {
+    console.log(`🔊 Proxying audio for "${word}" via Google TTS`);
+
+    // 构建 Google TTS URL
+    const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(word)}&tl=en&client=tw-ob`;
+    
+    console.log(`🔊 Fetching audio from: ${googleTtsUrl}`);
+
+    // 设置CORS头
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+
+    const audioResponse = await axios.get(googleTtsUrl, {
+      responseType: 'stream',
+      headers: {
+        'Referer': 'http://translate.google.com/',
+        'User-Agent': 'stagefright/1.2 (Linux;Android 5.0)',
+      }
+    });
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 缓存1天
+
+    audioResponse.data.pipe(res);
+    return; // 确保函数有返回值
+
+  } catch (error) {
+    console.error(`❌ Google TTS proxy error for "${word}":`, error);
+    return res.status(500).json({ error: 'Failed to proxy audio from Google TTS' });
   }
 }; 

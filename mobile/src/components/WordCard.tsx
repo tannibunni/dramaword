@@ -1,15 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Alert, ViewStyle } from 'react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
   withTiming, 
   interpolate,
-  runOnJS,
-  useAnimatedGestureHandler,
-  withSpring
+  runOnJS
 } from 'react-native-reanimated';
-import { PanGestureHandler, PanGestureHandlerGestureEvent } from 'react-native-gesture-handler';
 import { IWord } from '../types/word';
 import { wordService } from '@/services/wordService';
 import AudioPlayer from '@/components/AudioPlayer';
@@ -26,11 +23,6 @@ interface WordCardProps {
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
 const CARD_HEIGHT = Math.min(height * 0.65, 450);
-const SWIPE_THRESHOLD = 80;
-
-type ContextType = {
-  translateX: number;
-};
 
 const cardContainerStyle: ViewStyle = {
   width: CARD_WIDTH,
@@ -42,18 +34,25 @@ const cardContainerStyle: ViewStyle = {
 };
 
 export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip, onWordSaved }: WordCardProps) {
+  console.log('🎴 WordCard: Component rendered with word:', word?.word);
+  
+  // 添加组件生命周期日志
+  useEffect(() => {
+    console.log('🎴 WordCard: Component mounted');
+    return () => {
+      console.log('🎴 WordCard: Component unmounting');
+    };
+  }, []);
+
   const [isFlipped, setIsFlipped] = useState(showAnswer);
   const [isSaved, setIsSaved] = useState(false);
   const flipValue = useSharedValue(showAnswer ? 1 : 0);
-  const translateX = useSharedValue(0);
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(1);
 
   const handleFlip = () => {
     const newFlipped = !isFlipped;
     
     flipValue.value = withTiming(newFlipped ? 1 : 0, { duration: 600 }, () => {
-      runOnJS(setIsFlipped)(newFlipped);
+      setIsFlipped(newFlipped);
     });
     
     if (onFlip) {
@@ -62,79 +61,56 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
   };
 
   const saveWordToVocabulary = async () => {
+    console.log('💾 ===== SAVE FUNCTION START =====');
+    
+    // 防止重复保存
+    if (isSaved) {
+      console.log('💾 Word already being saved, skipping');
+      return;
+    }
+
+    // 设置保存状态
+    setIsSaved(true);
+
     try {
-      setIsSaved(true);
+      console.log('💾 Starting to save word:', word.word);
 
-      // 真正保存到后端
-      await wordService.saveWord(word);
-
-      if (onWordSaved) {
-        try {
-          onWordSaved(word);
-        } catch (cbErr) {
-          console.error('onWordSaved callback error:', cbErr);
-        }
+      // 验证单词数据
+      if (!word || !word.word) {
+        throw new Error('Invalid word data');
       }
 
-      Alert.alert('保存成功', `单词 "${word.word}" 已添加到您的单词表中`);
+      // 真正保存到后端
+      const savedWord = await wordService.saveWord(word);
+      console.log('💾 Word saved to backend:', savedWord);
 
+      // 显示成功消息
+      Alert.alert('保存成功', `单词 "${word.word}" 已添加到您的单词表中`, [
+        {
+          text: '确定',
+          onPress: () => {
+            console.log('💾 Word saved successfully, staying on current page');
+          }
+        }
+      ]);
+      
+      console.log('💾 ===== SAVE FUNCTION SUCCESS =====');
+      
+    } catch (error) {
+      console.error('💾 ===== SAVE FUNCTION ERROR =====');
+      console.error('💾 Save word error:', error);
+      
+      // 显示错误信息
+      Alert.alert('保存失败', '请稍后重试');
+      
+      console.log('💾 ===== SAVE FUNCTION ERROR END =====');
+    } finally {
+      // 延迟重置保存状态
       setTimeout(() => {
         setIsSaved(false);
       }, 2000);
-    } catch (error) {
-      console.error('Save word error:', error);
-      Alert.alert('保存失败', '请稍后重试');
-      setIsSaved(false);
     }
   };
-
-  // 右滑手势处理器 - 只在卡片背面生效
-  const gestureHandler = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, ContextType>({
-    onStart: (_, context) => {
-      context.translateX = translateX.value;
-    },
-    onActive: (event, context) => {
-      // 只在翻转到背面时允许滑动
-      if (flipValue.value < 0.5) return;
-      
-      // 只允许向右滑动
-      const newTranslateX = Math.max(0, context.translateX + event.translationX);
-      translateX.value = newTranslateX;
-      
-      // 根据滑动进度调整卡片样式
-      const progress = Math.min(newTranslateX / SWIPE_THRESHOLD, 1);
-      scale.value = interpolate(progress, [0, 1], [1, 1.05]);
-      opacity.value = interpolate(progress, [0, 1], [1, 0.9]);
-    },
-    onEnd: (event) => {
-      // 只在翻转到背面时处理滑动结束
-      if (flipValue.value < 0.5) return;
-      
-      const shouldSave = event.translationX > SWIPE_THRESHOLD;
-      
-      if (shouldSave) {
-        // 执行保存动画
-        translateX.value = withTiming(CARD_WIDTH, { duration: 300 });
-        scale.value = withTiming(0.8, { duration: 300 });
-        opacity.value = withTiming(0, { duration: 300 });
-        
-        // 保存单词
-        setTimeout(() => {
-          runOnJS(saveWordToVocabulary)();
-          
-          // 重置动画状态
-          translateX.value = withSpring(0);
-          scale.value = withSpring(1);
-          opacity.value = withSpring(1);
-        }, 300);
-      } else {
-        // 弹回原位
-        translateX.value = withSpring(0);
-        scale.value = withSpring(1);
-        opacity.value = withSpring(1);
-      }
-    },
-  });
 
   const frontAnimatedStyle = useAnimatedStyle(() => {
     const rotateY = interpolate(flipValue.value, [0, 1], [0, 180]);
@@ -152,21 +128,9 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
     return {
       transform: [
         { rotateY: `${rotateY}deg` },
-        { translateX: translateX.value },
-        { scale: scale.value }
       ],
-      opacity: backOpacity * opacity.value,
+      opacity: backOpacity,
       zIndex: flipValue.value >= 0.5 ? 2 : 1,
-    };
-  });
-
-  // 右滑指示器动画
-  const swipeIndicatorStyle = useAnimatedStyle(() => {
-    const progress = translateX.value / SWIPE_THRESHOLD;
-    const indicatorOpacity = Math.min(progress, 1);
-    return {
-      opacity: indicatorOpacity,
-      transform: [{ scale: interpolate(progress, [0, 1], [0.8, 1.2]) }],
     };
   });
 
@@ -223,92 +187,122 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
           </View>
         </Animated.View>
 
-        {/* 卡片背面 - 支持右滑保存 */}
-        <PanGestureHandler onGestureEvent={gestureHandler}>
-          <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle]}>
-            <View style={styles.backGradient}>
-              {/* 右滑保存指示器 */}
-              <Animated.View style={[styles.swipeIndicator, swipeIndicatorStyle]}>
-                <Feather name="bookmark" color="#FFFFFF" size={20} />
-                <Text style={styles.swipeIndicatorText}>保存</Text>
-              </Animated.View>
+        {/* 卡片背面 */}
+        <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle]}>
+          <View style={styles.backGradient}>
+            <ScrollView 
+              style={styles.backScrollView}
+              contentContainerStyle={styles.backContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.backHeader}>
+                <Text style={styles.backWord}>{word.word}</Text>
+                {/* 🔥 修改：背面也使用音标和发音图标的行布局 */}
+                {word.pronunciation && (
+                  <View style={styles.backPhoneticRow}>
+                    <Text style={styles.backPhonetic}>{word.pronunciation}</Text>
+                    {word.audioUrl && (
+                      <AudioPlayer
+                        audioUrl={word.audioUrl}
+                        size={20}
+                        color="#666666"
+                        style={styles.backPhoneticAudioIcon}
+                        onPress={onAudioPlay}
+                      />
+                    )}
+                  </View>
+                )}
+              </View>
 
-              <ScrollView 
-                style={styles.backScrollView}
-                contentContainerStyle={styles.backContent}
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.backHeader}>
-                  <Text style={styles.backWord}>{word.word}</Text>
-                  {/* 🔥 修改：背面也使用音标和发音图标的行布局 */}
-                  {word.pronunciation && (
-                    <View style={styles.backPhoneticRow}>
-                      <Text style={styles.backPhonetic}>{word.pronunciation}</Text>
-                      {word.audioUrl && (
-                        <AudioPlayer
-                          audioUrl={word.audioUrl}
-                          size={20}
-                          color="#666666"
-                          style={styles.backPhoneticAudioIcon}
-                          onPress={onAudioPlay}
-                        />
+              <View style={styles.meaningsContainer}>
+                {word.meanings && word.meanings.length > 0 ? (
+                  word.meanings.slice(0, 3).map((meaning, index) => (
+                    <View key={index} style={styles.meaningItem}>
+                      <View style={styles.definitionRow}>
+                        <Text style={styles.partOfSpeech}>{meaning.partOfSpeech}</Text>
+                        <Text style={styles.definitionCn}>{meaning.definitionCn}</Text>
+                      </View>
+                      
+                      {/* 例句和例句翻译 */}
+                      {(meaning.example || meaning.exampleCn) && (
+                        <View style={styles.exampleContainer}>
+                          {meaning.example && (
+                            <View style={[styles.exampleRow, !meaning.exampleCn && styles.lastExampleRow]}>
+                              <Feather name="anchor" size={12} color="#4A90E2" style={styles.exampleIcon} />
+                              <Text style={styles.example}>{meaning.example}</Text>
+                            </View>
+                          )}
+                          {meaning.exampleCn && (
+                            <View style={[styles.exampleRow, styles.lastExampleRow]}>
+                              <Feather name="chevrons-right" size={12} color="#555555" style={styles.exampleIcon} />
+                              <Text style={styles.exampleTranslation}>{meaning.exampleCn}</Text>
+                            </View>
+                          )}
+                        </View>
                       )}
                     </View>
-                  )}
-                </View>
+                  ))
+                ) : (
+                  <View style={styles.noMeaningContainer}>
+                    <Text style={styles.noMeaningText}>暂无详细释义</Text>
+                  </View>
+                )}
 
-                <View style={styles.meaningsContainer}>
-                  {word.meanings && word.meanings.length > 0 ? (
-                    word.meanings.slice(0, 3).map((meaning, index) => (
-                      <View key={index} style={styles.meaningItem}>
-                        <View style={styles.definitionRow}>
-                          <Text style={styles.partOfSpeech}>{meaning.partOfSpeech}</Text>
-                          <Text style={styles.definitionCn}>{meaning.definitionCn}</Text>
-                        </View>
-                        
-                        {/* 例句和例句翻译 */}
-                        {(meaning.example || meaning.exampleCn) && (
-                          <View style={styles.exampleContainer}>
-                            {meaning.example && (
-                              <View style={[styles.exampleRow, !meaning.exampleCn && styles.lastExampleRow]}>
-                                <Feather name="anchor" size={12} color="#4A90E2" style={styles.exampleIcon} />
-                                <Text style={styles.example}>{meaning.example}</Text>
-                              </View>
-                            )}
-                            {meaning.exampleCn && (
-                              <View style={[styles.exampleRow, styles.lastExampleRow]}>
-                                <Feather name="chevrons-right" size={12} color="#555555" style={styles.exampleIcon} />
-                                <Text style={styles.exampleTranslation}>{meaning.exampleCn}</Text>
-                              </View>
-                            )}
-                          </View>
-                        )}
-                      </View>
-                    ))
-                  ) : (
-                    <View style={styles.noMeaningContainer}>
-                      <Text style={styles.noMeaningText}>暂无详细释义</Text>
+                {/* 拼写建议区域 */}
+                {word.spellingSuggestions && word.spellingSuggestions.length > 0 && (
+                  <View style={styles.spellingSuggestionsContainer}>
+                    <View style={styles.suggestionsHeader}>
+                      <Feather name="search" size={16} color="#4A90E2" />
+                      <Text style={styles.suggestionsTitle}>拼写建议</Text>
                     </View>
-                  )}
-                </View>
+                    <View style={styles.suggestionsList}>
+                      {word.spellingSuggestions.map((suggestion, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.suggestionItem}
+                          onPress={() => {
+                            // 这里需要通知父组件进行新的搜索
+                            if (onWordSaved) {
+                              // 临时使用onWordSaved回调来传递建议单词
+                              onWordSaved({ ...word, word: suggestion });
+                            }
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.suggestionText}>{suggestion}</Text>
+                          <Feather name="arrow-right" size={14} color="#999999" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </View>
 
-                <View style={styles.backFlipHint}>
-                  <Feather name="refresh-cw" color="#999999" size={14} />
-                  <Text style={styles.backFlipHintText}>轻触返回正面</Text>
-                </View>
-              </ScrollView>
-            </View>
-          </Animated.View>
-        </PanGestureHandler>
+              <View style={styles.backFlipHint}>
+                <Feather name="refresh-cw" color="#999999" size={14} />
+                <Text style={styles.backFlipHintText}>轻触返回正面</Text>
+              </View>
+            </ScrollView>
+
+            {/* 收集单词按钮 - 移到ScrollView外部 */}
+            <TouchableOpacity 
+              style={[styles.collectButton, isSaved && styles.collectButtonSaved]} 
+              onPress={saveWordToVocabulary}
+              disabled={isSaved}
+              activeOpacity={0.8}
+            >
+              <Feather 
+                name={isSaved ? "check" : "bookmark"} 
+                color="#FFFFFF" 
+                size={16} 
+              />
+              <Text style={styles.collectButtonText}>
+                {isSaved ? '已收集' : '收集单词'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
       </TouchableOpacity>
-
-      {/* 保存成功指示器 */}
-      {isSaved && (
-        <View style={styles.successIndicator}>
-          <Feather name="check" color="#FFFFFF" size={16} />
-          <Text style={styles.successText}>已保存</Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -347,29 +341,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#FFFFFF',
     padding: 0,
-  },
-  // 右滑保存指示器样式
-  swipeIndicator: {
-    position: 'absolute',
-    top: '50%',
-    right: 20,
-    zIndex: 10,
-    alignItems: 'center',
-    backgroundColor: '#22C55E',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
-    transform: [{ translateY: -25 }],
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  swipeIndicatorText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 4,
   },
   cardHeader: {
     marginBottom: 32,
@@ -566,29 +537,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontWeight: '500',
   },
-  // 保存成功指示器样式
-  successIndicator: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#22C55E',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    zIndex: 100,
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  successText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
   noTranslation: {
     flex: 1,
     justifyContent: 'center',
@@ -606,5 +554,66 @@ const styles = StyleSheet.create({
     color: '#999999',
     fontSize: 14,
     fontWeight: '500',
+  },
+  collectButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#22C55E',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    zIndex: 100,
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  collectButtonSaved: {
+    backgroundColor: '#10B981',
+  },
+  collectButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  spellingSuggestionsContainer: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#F8F9FA',
+  },
+  suggestionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  suggestionsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111111',
+    marginLeft: 8,
+  },
+  suggestionsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#111111',
+    marginRight: 8,
   },
 });
