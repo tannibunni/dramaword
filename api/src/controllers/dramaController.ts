@@ -170,6 +170,12 @@ export const saveDrama = async (req: Request, res: Response, next: NextFunction)
 export const updateDrama = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    
+    // 验证ID是否存在且有效
+    if (!id || id === 'undefined') {
+      return res.status(400).json({ error: '无效的剧集ID' });
+    }
+    
     const updateData = req.body;
     
     const updatedDrama = await Drama.findByIdAndUpdate(id, updateData, { new: true });
@@ -189,6 +195,11 @@ export const updateDrama = async (req: Request, res: Response, next: NextFunctio
 export const deleteDrama = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    
+    // 验证ID是否存在且有效
+    if (!id || id === 'undefined') {
+      return res.status(400).json({ error: '无效的剧集ID' });
+    }
     
     const deletedDrama = await Drama.findByIdAndDelete(id);
 

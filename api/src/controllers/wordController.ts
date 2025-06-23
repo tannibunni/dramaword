@@ -497,6 +497,105 @@ export const getUserWords = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+// Update word progress (for review results)
+export const updateWordProgress = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { wordId, correct, timestamp } = req.body;
+    
+    console.log(`📝 Updating word progress: ${wordId}, correct: ${correct}`);
+    
+    // 检查数据库连接
+    if (!isDBConnected()) {
+      console.log('⚠️ Database not connected, simulating progress update');
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Progress updated (simulated)' 
+      });
+    }
+    
+    // 验证请求数据
+    if (!wordId) {
+      return res.status(400).json({ error: 'Word ID is required' });
+    }
+    
+    // 查找并更新单词
+    const word = await Word.findById(wordId);
+    if (!word) {
+      console.log(`⚠️ Word not found: ${wordId}`);
+      return res.status(404).json({ error: 'Word not found' });
+    }
+    
+    // 更新单词的学习进度
+    // 这里可以添加更复杂的学习算法，比如间隔重复算法
+    const updateData: any = {
+      updatedAt: new Date(),
+    };
+    
+    // 如果是第一次更新进度，初始化进度字段
+    if (!word.progress) {
+      updateData.progress = {
+        correctCount: correct ? 1 : 0,
+        incorrectCount: correct ? 0 : 1,
+        lastReviewed: timestamp ? new Date(timestamp) : new Date(),
+        nextReviewDate: null,
+        masteryLevel: 0, // 0-5, 5表示完全掌握
+      };
+    } else {
+      // 更新现有进度
+      const currentCorrect = word.progress.correctCount || 0;
+      const currentIncorrect = word.progress.incorrectCount || 0;
+      
+      updateData.progress = {
+        correctCount: correct ? currentCorrect + 1 : currentCorrect,
+        incorrectCount: correct ? currentIncorrect : currentIncorrect + 1,
+        lastReviewed: timestamp ? new Date(timestamp) : new Date(),
+        nextReviewDate: word.progress.nextReviewDate,
+        masteryLevel: word.progress.masteryLevel || 0,
+      };
+    }
+    
+    // 简单的掌握度计算
+    const totalReviews = updateData.progress.correctCount + updateData.progress.incorrectCount;
+    const correctRate = totalReviews > 0 ? updateData.progress.correctCount / totalReviews : 0;
+    
+    // 根据正确率计算掌握度
+    let masteryLevel = 0;
+    if (correctRate >= 0.9) masteryLevel = 5;
+    else if (correctRate >= 0.8) masteryLevel = 4;
+    else if (correctRate >= 0.7) masteryLevel = 3;
+    else if (correctRate >= 0.6) masteryLevel = 2;
+    else if (correctRate >= 0.5) masteryLevel = 1;
+    
+    updateData.progress.masteryLevel = masteryLevel;
+    
+    // 计算下次复习时间（简单的间隔重复算法）
+    const daysUntilNextReview = correct ? 
+      Math.min(Math.pow(2, masteryLevel), 30) : // 正确时，间隔递增
+      1; // 错误时，明天复习
+    
+    const nextReviewDate = new Date();
+    nextReviewDate.setDate(nextReviewDate.getDate() + daysUntilNextReview);
+    updateData.progress.nextReviewDate = nextReviewDate;
+    
+    // 更新数据库
+    await Word.findByIdAndUpdate(wordId, { $set: updateData });
+    
+    console.log(`✅ Word progress updated: ${wordId}, mastery level: ${masteryLevel}`);
+    
+    return res.status(200).json({
+      success: true,
+      masteryLevel,
+      nextReviewDate,
+      message: 'Progress updated successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ Update word progress failed:', error);
+    next(error);
+    return;
+  }
+};
+
 // 音频代理端点 - 已切换到 Google TTS
 export const proxyAudio = async (req: Request, res: Response, next: NextFunction) => {
   const { word } = req.params;
@@ -539,5 +638,44 @@ export const proxyAudio = async (req: Request, res: Response, next: NextFunction
   } catch (error) {
     console.error(`❌ Google TTS proxy error for "${word}":`, error);
     return res.status(500).json({ error: 'Failed to proxy audio from Google TTS' });
+  }
+};
+
+// 通过单词字符串删除单词
+export const deleteWordByWord = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { word } = req.params;
+    if (!word) {
+      return res.status(400).json({ error: 'Word parameter is required' });
+    }
+    // 查找并删除
+    const deleted = await Word.findOneAndDelete({ word });
+    if (!deleted) {
+      return res.status(404).json({ error: 'Word not found' });
+    }
+    return res.status(200).json({ success: true, message: 'Word deleted by word' });
+  } catch (error) {
+    console.error('❌ Delete word by word failed:', error);
+    next(error);
+    return;
+  }
+};
+
+// 通过id删除单词
+export const deleteWordById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'ID parameter is required' });
+    }
+    const deleted = await Word.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Word not found' });
+    }
+    return res.status(200).json({ success: true, message: 'Word deleted by id' });
+  } catch (error) {
+    console.error('❌ Delete word by id failed:', error);
+    next(error);
+    return;
   }
 }; 

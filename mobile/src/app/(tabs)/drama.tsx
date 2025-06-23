@@ -70,7 +70,7 @@ export default function DramaScreen() {
   const loadUserDramas = async () => {
     try {
       const userDramas = await dramaService.getUserDramas();
-      setDramas(userDramas);
+      setDramas(userDramas.map(d => ({ ...d, id: d._id })));
     } catch (error) {
       console.error('Failed to load user dramas:', error);
     }
@@ -201,15 +201,6 @@ export default function DramaScreen() {
   };
 
   const deleteDrama = async (id: string) => {
-    Alert.alert(
-      '确认删除',
-      '确定要从剧单中删除这部剧吗？',
-      [
-        { text: '取消', style: 'cancel' },
-        { 
-          text: '删除', 
-          style: 'destructive',
-          onPress: async () => {
             try {
               await dramaService.deleteDrama(id);
               setDramas(prevDramas => prevDramas.filter(drama => drama.id !== id));
@@ -217,10 +208,6 @@ export default function DramaScreen() {
               console.error('Failed to delete drama:', error);
               Alert.alert('删除失败', '请稍后重试');
             }
-          }
-        },
-      ]
-    );
   };
 
   const getStatusColor = (status: UserDrama['status']) => {

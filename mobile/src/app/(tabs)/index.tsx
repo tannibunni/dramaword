@@ -10,6 +10,9 @@ import CelebrationModal from '@/components/CelebrationModal';
 import { wordService } from '@/services/wordService';
 import { IWord } from '@/types/word';
 import IPDetector from '@/services/ipDetector';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const LAST_SEARCHED_WORD_KEY = 'last_searched_word';
 
 export default function SearchScreen() {
   const [currentWord, setCurrentWord] = useState<IWord | null>(null);
@@ -30,6 +33,19 @@ export default function SearchScreen() {
   // 启动时自动检测IP
   useEffect(() => {
     initializeApp();
+  }, []);
+
+  // 页面初始化时优先从本地恢复currentWord
+  useEffect(() => {
+    const restoreLastWord = async () => {
+      try {
+        const data = await AsyncStorage.getItem(LAST_SEARCHED_WORD_KEY);
+        if (data) {
+          setCurrentWord(JSON.parse(data));
+        }
+      } catch (e) {}
+    };
+    restoreLastWord();
   }, []);
 
   const initializeApp = async () => {
@@ -78,6 +94,8 @@ export default function SearchScreen() {
       
       if (wordData && wordData.word) {
         setCurrentWord(wordData);
+        // 保存到本地
+        await AsyncStorage.setItem(LAST_SEARCHED_WORD_KEY, JSON.stringify(wordData));
         console.log('✅ Word found:', wordData.word);
         console.log('📝 Current word set:', wordData);
         

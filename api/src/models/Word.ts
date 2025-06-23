@@ -8,6 +8,14 @@ const meaningSchema = new Schema({
   exampleCn: String
 }, { _id: false });
 
+const progressSchema = new Schema({
+  correctCount: { type: Number, default: 0 },
+  incorrectCount: { type: Number, default: 0 },
+  lastReviewed: Date,
+  nextReviewDate: Date,
+  masteryLevel: { type: Number, default: 0, min: 0, max: 5 }, // 0-5, 5表示完全掌握
+}, { _id: false });
+
 const wordSchema = new Schema<IWordDocument>({
   word: { type: String, required: true, unique: true, index: true },
   pronunciation: String,
@@ -17,6 +25,7 @@ const wordSchema = new Schema<IWordDocument>({
   queryCount: { type: Number, default: 0 },
   lastQueried: { type: Date, default: Date.now },
   searchTerms: [{ type: String }],
+  progress: progressSchema, // 学习进度
 }, { timestamps: true });
 
 export const Word = model<IWordDocument>('Word', wordSchema);

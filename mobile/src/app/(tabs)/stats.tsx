@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Text, Dimensions, TouchableOpacity, Alert, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { wordService } from '@/services/wordService';
 import { databaseService } from '@/services/databaseService';
 import { syncService } from '@/services/syncService';
 import { userService } from '@/services/userService';
+import { reviewService } from '@/services/reviewService';
 import LoginModal from '@/components/LoginModal';
 import SettingsModal from '@/components/SettingsModal';
 
@@ -19,6 +21,15 @@ export default function StatsScreen() {
     knownWords: 0,
     reviewWords: 0,
     accuracy: 0,
+  });
+
+  const [reviewStats, setReviewStats] = useState({
+    totalReviews: 0,
+    correctReviews: 0,
+    accuracy: 0,
+    todayReviews: 0,
+    streak: 0,
+    totalSessions: 0,
   });
 
   const [cloudStats, setCloudStats] = useState({
@@ -52,17 +63,41 @@ export default function StatsScreen() {
 
   const insets = useSafeAreaInsets();
 
-  useEffect(() => {
-    loadStats();
-    loadCloudStats();
-    loadSyncStatus();
-    loadCacheInfo();
-    loadUserData();
-  }, []);
+  useFocusEffect(
+    React.useCallback(() => {
+      loadAllData();
+    }, [])
+  );
+
+  const loadAllData = async () => {
+    await Promise.all([
+      loadStats(),
+      loadReviewStats(),
+      loadCloudStats(),
+      loadSyncStatus(),
+      loadCacheInfo(),
+      loadUserData(),
+    ]);
+  };
 
   const loadStats = async () => {
-    const currentStats = await wordService.getStudyStats();
-    setStats(currentStats);
+    try {
+      const currentStats = await wordService.getStudyStats();
+      setStats(currentStats);
+      console.log('📊 Loaded word stats:', currentStats);
+    } catch (error) {
+      console.error('Load stats error:', error);
+    }
+  };
+
+  const loadReviewStats = async () => {
+    try {
+      const currentReviewStats = await reviewService.getStudyStats();
+      setReviewStats(currentReviewStats);
+      console.log('📈 Loaded review stats:', currentReviewStats);
+    } catch (error) {
+      console.error('Load review stats error:', error);
+    }
   };
 
   const loadCloudStats = async () => {
@@ -121,13 +156,7 @@ export default function StatsScreen() {
     try {
       console.log('🔄 Refreshing all data...');
       
-      await Promise.all([
-        loadStats(),
-        loadCloudStats(),
-        loadSyncStatus(),
-        loadCacheInfo(),
-        loadUserData(),
-      ]);
+      await loadAllData();
       
       console.log('✅ Data refresh completed');
     } catch (error) {
@@ -155,9 +184,11 @@ export default function StatsScreen() {
               console.log('🗑️ 开始清除所有数据...');
               
               await wordService.clearAllData();
+              await reviewService.clearAllRecords();
               
               await Promise.all([
                 loadStats(),
+                loadReviewStats(),
                 loadCacheInfo(),
               ]);
               
@@ -435,6 +466,45 @@ export default function StatsScreen() {
           </View>
         </View>
 
+        {/* Review Stats */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>复习统计</Text>
+          <View style={styles.statsGrid}>
+            <StatCard
+              title="总复习次数"
+              value={reviewStats.totalReviews}
+              subtitle="累计复习单词次数"
+              icon="repeat"
+              color="#EC4899"
+              backgroundColor="#FFFFFF"
+            />
+            <StatCard
+              title="正确次数"
+              value={reviewStats.correctReviews}
+              subtitle="正确回忆的次数"
+              icon="check-circle"
+              color="#10B981"
+              backgroundColor="#FFFFFF"
+            />
+            <StatCard
+              title="今日复习"
+              value={reviewStats.todayReviews}
+              subtitle="今天已复习的单词"
+              icon="calendar"
+              color="#F97316"
+              backgroundColor="#FFFFFF"
+            />
+            <StatCard
+              title="连续天数"
+              value={reviewStats.streak}
+              subtitle="连续学习天数"
+              icon="trending-up"
+              color="#EF4444"
+              backgroundColor="#FFFFFF"
+            />
+          </View>
+        </View>
+
         {/* Progress Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>学习进度</Text>
@@ -447,9 +517,15 @@ export default function StatsScreen() {
             />
             <ProgressBar
               label="复习完成度"
-              current={stats.totalWords - stats.reviewWords}
-              total={stats.totalWords}
+              current={reviewStats.todayReviews}
+              total={Math.max(reviewStats.todayReviews, 10)}
               color="#3B82F6"
+            />
+            <ProgressBar
+              label="学习准确率"
+              current={reviewStats.correctReviews}
+              total={reviewStats.totalReviews}
+              color="#8B5CF6"
             />
           </View>
         </View>

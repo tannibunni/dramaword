@@ -15,6 +15,7 @@ export interface DramaSearchResult {
 
 export interface UserDrama {
   id: string;
+  _id?: string;
   tmdbId: number;
   title: string;
   originalTitle?: string;

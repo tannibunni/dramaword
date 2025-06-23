@@ -7,6 +7,14 @@ export interface IMeaning {
   exampleCn?: string;
 }
 
+export interface IWordProgress {
+  correctCount: number;
+  incorrectCount: number;
+  lastReviewed?: Date;
+  nextReviewDate?: Date;
+  masteryLevel: number; // 0-5, 5表示完全掌握
+}
+
 export interface IWord {
   _id?: string; // Changed to optional for unsaved words
   word: string;
@@ -17,6 +25,7 @@ export interface IWord {
   queryCount: number;
   lastQueried: Date;
   searchTerms: string[];
+  progress?: IWordProgress; // 学习进度
   createdAt?: Date;
   updatedAt?: Date;
   spellingSuggestions?: string[]; // 拼写建议字段

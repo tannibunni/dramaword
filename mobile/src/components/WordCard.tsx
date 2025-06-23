@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Alert, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Alert, ViewStyle, Platform } from 'react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -29,7 +29,6 @@ const cardContainerStyle: ViewStyle = {
   height: CARD_HEIGHT,
   alignSelf: 'center',
   marginVertical: 20,
-  perspective: 1000 as any, 
   zIndex: 1,
 };
 
@@ -44,71 +43,67 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
     };
   }, []);
 
+  // 安全地获取单词数据
+  const safeWord = word || {};
+  const safeMeanings = safeWord.meanings || [];
+  const safePronunciation = safeWord.pronunciation || '';
+  const safeAudioUrl = safeWord.audioUrl || '';
+  const safeSpellingSuggestions = safeWord.spellingSuggestions || [];
+
   const [isFlipped, setIsFlipped] = useState(showAnswer);
   const [isSaved, setIsSaved] = useState(false);
   const flipValue = useSharedValue(showAnswer ? 1 : 0);
 
+  useEffect(() => {
+    // 检查单词是否已收藏
+    const checkSaved = async () => {
+      try {
+        const allWords = await wordService.getAllWords();
+        setIsSaved(!!allWords.find(w => w.word === word.word));
+      } catch (e) {
+        setIsSaved(false);
+      }
+    };
+    if (word && word.word) checkSaved();
+  }, [word]);
+
   const handleFlip = () => {
-    const newFlipped = !isFlipped;
-    
-    flipValue.value = withTiming(newFlipped ? 1 : 0, { duration: 600 }, () => {
-      setIsFlipped(newFlipped);
-    });
-    
-    if (onFlip) {
-      onFlip();
+    try {
+      const newFlipped = !isFlipped;
+      
+      flipValue.value = withTiming(newFlipped ? 1 : 0, { duration: 600 }, () => {
+        runOnJS(setIsFlipped)(newFlipped);
+      });
+      
+      if (onFlip) {
+        onFlip();
+      }
+    } catch (error) {
+      console.error('Flip error:', error);
     }
   };
 
-  const saveWordToVocabulary = async () => {
-    console.log('💾 ===== SAVE FUNCTION START =====');
-    
-    // 防止重复保存
+  const toggleSaveWord = async () => {
+    if (!word || !word.word) return;
     if (isSaved) {
-      console.log('💾 Word already being saved, skipping');
-      return;
-    }
-
-    // 设置保存状态
-    setIsSaved(true);
-
-    try {
-      console.log('💾 Starting to save word:', word.word);
-
-      // 验证单词数据
-      if (!word || !word.word) {
-        throw new Error('Invalid word data');
-      }
-
-      // 真正保存到后端
-      const savedWord = await wordService.saveWord(word);
-      console.log('💾 Word saved to backend:', savedWord);
-
-      // 显示成功消息
-      Alert.alert('保存成功', `单词 "${word.word}" 已添加到您的单词表中`, [
-        {
-          text: '确定',
-          onPress: () => {
-            console.log('💾 Word saved successfully, staying on current page');
-          }
-        }
-      ]);
-      
-      console.log('💾 ===== SAVE FUNCTION SUCCESS =====');
-      
-    } catch (error) {
-      console.error('💾 ===== SAVE FUNCTION ERROR =====');
-      console.error('💾 Save word error:', error);
-      
-      // 显示错误信息
-      Alert.alert('保存失败', '请稍后重试');
-      
-      console.log('💾 ===== SAVE FUNCTION ERROR END =====');
-    } finally {
-      // 延迟重置保存状态
-      setTimeout(() => {
+      // 取消收藏
+      try {
+        const allWords = await wordService.getAllWords();
+        const real = allWords.find(w => w.word === word.word);
+        const deleteId = real?._id && !real._id.startsWith('temp_') ? real._id : word.word;
+        await wordService.deleteWord(deleteId);
         setIsSaved(false);
-      }, 2000);
+      } catch (e) {
+        Alert.alert('取消收藏失败', '请稍后重试');
+      }
+    } else {
+      // 收藏
+      try {
+        await wordService.saveWord(word);
+        setIsSaved(true);
+      } catch (e) {
+        Alert.alert('收藏失败', '请稍后重试');
+      }
     }
   };
 
@@ -118,7 +113,7 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
     return {
       transform: [{ rotateY: `${rotateY}deg` }],
       opacity: frontOpacity,
-      zIndex: flipValue.value < 0.5 ? 2 : 1,
+      zIndex: Platform.OS === 'ios' ? (flipValue.value < 0.5 ? 2 : 1) : undefined,
     };
   });
 
@@ -130,7 +125,7 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
         { rotateY: `${rotateY}deg` },
       ],
       opacity: backOpacity,
-      zIndex: flipValue.value >= 0.5 ? 2 : 1,
+      zIndex: Platform.OS === 'ios' ? (flipValue.value >= 0.5 ? 2 : 1) : undefined,
     };
   });
 
@@ -141,13 +136,13 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
         <Animated.View style={[styles.card, styles.cardFront, frontAnimatedStyle]}>
           <View style={styles.frontGradient}>
             <View style={styles.wordSection}>
-              <Text style={styles.word}>{word.word}</Text>
-              {word.pronunciation && (
+              <Text style={styles.word}>{safeWord.word || '未知单词'}</Text>
+              {safePronunciation && (
                 <View style={styles.phoneticRow}>
-                  <Text style={styles.phonetic}>[{word.pronunciation}]</Text>
-                  {word.audioUrl && (
+                  <Text style={styles.phonetic}>[{safePronunciation}]</Text>
+                  {safeAudioUrl && (
                     <AudioPlayer
-                      audioUrl={word.audioUrl}
+                      audioUrl={safeAudioUrl}
                       size={18}
                       color="#666666"
                       style={styles.phoneticAudioIcon}
@@ -163,14 +158,18 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 40 }}
             >
-              {word.meanings?.length > 0 ? (
-                word.meanings.slice(0, 5).map((meaning, index) => (
-                  <View key={index} style={styles.translationItem}>
+              {safeMeanings.length > 0 ? (
+                safeMeanings.slice(0, 5).map((meaning, index) => (
+                  <View key={`front-${index}`} style={styles.translationItem}>
                     <View style={styles.translationNumber}>
                       <Text style={styles.translationNumberText}>{index + 1}</Text>
                     </View>
-                    <Text style={[styles.partOfSpeech, styles.frontPartOfSpeech]}>{meaning.partOfSpeech}</Text>
-                    <Text style={styles.translation} numberOfLines={2}>{meaning.definitionCn}</Text>
+                    <Text style={[styles.partOfSpeech, styles.frontPartOfSpeech]}>
+                      {meaning.partOfSpeech || '未知'}
+                    </Text>
+                    <Text style={styles.translation} numberOfLines={2}>
+                      {meaning.definitionCn || '暂无释义'}
+                    </Text>
                   </View>
                 ))
               ) : (
@@ -196,14 +195,14 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.backHeader}>
-                <Text style={styles.backWord}>{word.word}</Text>
+                <Text style={styles.backWord}>{safeWord.word || '未知单词'}</Text>
                 {/* 🔥 修改：背面也使用音标和发音图标的行布局 */}
-                {word.pronunciation && (
+                {safePronunciation && (
                   <View style={styles.backPhoneticRow}>
-                    <Text style={styles.backPhonetic}>{word.pronunciation}</Text>
-                    {word.audioUrl && (
+                    <Text style={styles.backPhonetic}>{safePronunciation}</Text>
+                    {safeAudioUrl && (
                       <AudioPlayer
-                        audioUrl={word.audioUrl}
+                        audioUrl={safeAudioUrl}
                         size={20}
                         color="#666666"
                         style={styles.backPhoneticAudioIcon}
@@ -215,27 +214,31 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
               </View>
 
               <View style={styles.meaningsContainer}>
-                {word.meanings && word.meanings.length > 0 ? (
-                  word.meanings.slice(0, 3).map((meaning, index) => (
-                    <View key={index} style={styles.meaningItem}>
+                {safeMeanings && safeMeanings.length > 0 ? (
+                  safeMeanings.slice(0, 3).map((meaning, index) => (
+                    <View key={`back-${index}`} style={styles.meaningItem}>
                       <View style={styles.definitionRow}>
-                        <Text style={styles.partOfSpeech}>{meaning.partOfSpeech}</Text>
-                        <Text style={styles.definitionCn}>{meaning.definitionCn}</Text>
+                        <Text style={styles.partOfSpeech}>
+                          {meaning.partOfSpeech || '未知'}
+                        </Text>
+                        <Text style={styles.definitionCn}>
+                          {meaning.definitionCn || '暂无释义'}
+                        </Text>
                       </View>
                       
                       {/* 例句和例句翻译 */}
-                      {(meaning.example || meaning.exampleCn) && (
+                      {((meaning.example && meaning.example.trim()) || (meaning.exampleCn && meaning.exampleCn.trim())) && (
                         <View style={styles.exampleContainer}>
-                          {meaning.example && (
-                            <View style={[styles.exampleRow, !meaning.exampleCn && styles.lastExampleRow]}>
+                          {meaning.example && meaning.example.trim() && (
+                            <View style={[styles.exampleRow, !(meaning.exampleCn && meaning.exampleCn.trim()) && styles.lastExampleRow]}>
                               <Feather name="anchor" size={12} color="#4A90E2" style={styles.exampleIcon} />
-                              <Text style={styles.example}>{meaning.example}</Text>
+                              <Text style={styles.example}>{meaning.example.trim()}</Text>
                             </View>
                           )}
-                          {meaning.exampleCn && (
+                          {meaning.exampleCn && meaning.exampleCn.trim() && (
                             <View style={[styles.exampleRow, styles.lastExampleRow]}>
                               <Feather name="chevrons-right" size={12} color="#555555" style={styles.exampleIcon} />
-                              <Text style={styles.exampleTranslation}>{meaning.exampleCn}</Text>
+                              <Text style={styles.exampleTranslation}>{meaning.exampleCn.trim()}</Text>
                             </View>
                           )}
                         </View>
@@ -249,22 +252,22 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
                 )}
 
                 {/* 拼写建议区域 */}
-                {word.spellingSuggestions && word.spellingSuggestions.length > 0 && (
+                {safeSpellingSuggestions.length > 0 && (
                   <View style={styles.spellingSuggestionsContainer}>
                     <View style={styles.suggestionsHeader}>
                       <Feather name="search" size={16} color="#4A90E2" />
                       <Text style={styles.suggestionsTitle}>拼写建议</Text>
                     </View>
                     <View style={styles.suggestionsList}>
-                      {word.spellingSuggestions.map((suggestion, index) => (
+                      {safeSpellingSuggestions.map((suggestion, index) => (
                         <TouchableOpacity
-                          key={index}
+                          key={`suggestion-${index}`}
                           style={styles.suggestionItem}
                           onPress={() => {
                             // 这里需要通知父组件进行新的搜索
                             if (onWordSaved) {
                               // 临时使用onWordSaved回调来传递建议单词
-                              onWordSaved({ ...word, word: suggestion });
+                              onWordSaved({ ...safeWord, word: suggestion });
                             }
                           }}
                           activeOpacity={0.7}
@@ -284,21 +287,18 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
               </View>
             </ScrollView>
 
-            {/* 收集单词按钮 - 移到ScrollView外部 */}
+            {/* 右上角爱心收藏按钮 */}
             <TouchableOpacity 
-              style={[styles.collectButton, isSaved && styles.collectButtonSaved]} 
-              onPress={saveWordToVocabulary}
-              disabled={isSaved}
-              activeOpacity={0.8}
+              style={styles.heartButton}
+              onPress={toggleSaveWord}
+              activeOpacity={0.7}
             >
-              <Feather 
-                name={isSaved ? "check" : "bookmark"} 
-                color="#FFFFFF" 
-                size={16} 
+              <Feather
+                name="heart"
+                size={26}
+                color={isSaved ? '#EF4444' : '#BDBDBD'}
+                solid={isSaved}
               />
-              <Text style={styles.collectButtonText}>
-                {isSaved ? '已收集' : '收集单词'}
-              </Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 8,
-    backfaceVisibility: 'hidden',
+    backfaceVisibility: Platform.OS === 'ios' ? 'hidden' : undefined,
     zIndex: 1,
   },
   cardFront: {
@@ -555,31 +555,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  collectButton: {
+  heartButton: {
     position: 'absolute',
-    bottom: 20,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#22C55E',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    top: 16,
+    right: 16,
     zIndex: 100,
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  collectButtonSaved: {
-    backgroundColor: '#10B981',
-  },
-  collectButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
+    backgroundColor: 'transparent',
+    padding: 4,
   },
   spellingSuggestionsContainer: {
     marginTop: 20,

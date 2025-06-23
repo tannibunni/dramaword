@@ -1,5 +1,5 @@
 import express from 'express';
-import { getWord, getUserWords, proxyAudio, saveWord } from '../controllers/wordController';
+import { getWord, getUserWords, proxyAudio, saveWord, updateWordProgress } from '../controllers/wordController';
 import { authMiddleware } from '../middleware/auth';
 import { validateWord } from '../middleware/validation';
 
@@ -9,6 +9,12 @@ const router = express.Router();
 router.get('/user', getUserWords);
 router.get('/:word/audio', proxyAudio);
 router.post('/', saveWord);
+router.post('/progress', updateWordProgress);
+router.delete('/word/:word', (req, res, next) => {
+  // 代理到controller
+  require('../controllers/wordController').deleteWordByWord(req, res, next);
+});
+router.delete('/:id', require('../controllers/wordController').deleteWordById);
 
 // 庆祝相关路由 - 必须在 /:word 路由之前
 router.get('/celebration', (req, res) => {

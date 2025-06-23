@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Text, TouchableOpacity, Dimensions, Animated, ScrollView } from 'react-native';
+import { View, StyleSheet, FlatList, Text, TouchableOpacity, Dimensions, Animated, ScrollView, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
+import { Swipeable } from 'react-native-gesture-handler';
 import WordCard from '@/components/WordCard';
 import AchievementBadge from '@/components/AchievementBadge';
 import { wordService } from '@/services/wordService';
@@ -88,6 +89,36 @@ export default function VocabularyScreen() {
     handleCloseCard();
   };
 
+  // 新增：处理单词删除
+  const handleDeleteWord = async (word: IWord) => {
+    try {
+      console.log(`🗑️ Deleting word: ${word.word} (ID: ${word._id})`);
+      
+      // 调用删除API
+      await wordService.deleteWord(word._id || word.word);
+      
+      // 从本地状态中移除
+      setWords(prevWords => prevWords.filter(w => w._id !== word._id));
+      
+      console.log(`✅ Word deleted successfully: ${word.word}`);
+    } catch (error) {
+      console.error('❌ Delete word error:', error);
+      Alert.alert('删除失败', '删除单词时出现错误，请重试');
+    }
+  };
+
+  // 新增：渲染删除按钮
+  const renderDeleteButton = (word: IWord) => (
+    <TouchableOpacity
+      style={styles.deleteButton}
+      onPress={() => handleDeleteWord(word)}
+      activeOpacity={0.8}
+    >
+      <Feather name="trash-2" size={20} color="#FFFFFF" />
+      <Text style={styles.deleteButtonText}>删除</Text>
+    </TouchableOpacity>
+  );
+
   const renderProgressSection = () => {
     const currentCount = words.length;
     const nextMilestone = MILESTONES.find(m => currentCount < m.count) || MILESTONES[MILESTONES.length - 1];
@@ -134,37 +165,42 @@ export default function VocabularyScreen() {
   };
 
   const renderWordItem = ({ item }: { item: IWord }) => (
-    <TouchableOpacity
-      style={styles.wordItem}
-      onPress={() => handleWordPress(item)}
-      activeOpacity={0.6}
+    <Swipeable
+      renderRightActions={() => renderDeleteButton(item)}
+      rightThreshold={40}
     >
-      <View style={styles.wordContent}>
-        <View style={styles.wordInfo}>
-          <Text style={styles.wordText}>{item.word}</Text>
-          <Text style={styles.translationText} numberOfLines={1}>
-            {item.meanings && item.meanings.length > 0 
-              ? item.meanings.map(m => m.definitionCn).filter(Boolean).join(' · ')
-              : '暂无释义'
-            }
-          </Text>
-        </View>
-        
-        <View style={styles.wordMeta}>
-          {item.audioUrl && (
-            <View style={styles.audioIndicator}>
-              <Feather name="volume-2" size={14} color="#666666" />
-            </View>
-          )}
-          
-          <View style={styles.difficultyIndicator}>
-            <Text style={styles.difficultyText}>
-              {item.difficulty || 1}
+      <TouchableOpacity
+        style={styles.wordItem}
+        onPress={() => handleWordPress(item)}
+        activeOpacity={0.6}
+      >
+        <View style={styles.wordContent}>
+          <View style={styles.wordInfo}>
+            <Text style={styles.wordText}>{item.word}</Text>
+            <Text style={styles.translationText} numberOfLines={1}>
+              {item.meanings && item.meanings.length > 0 
+                ? item.meanings.map(m => m.definitionCn).filter(Boolean).join(' · ')
+                : '暂无释义'
+              }
             </Text>
           </View>
+          
+          <View style={styles.wordMeta}>
+            {item.audioUrl && (
+              <View style={styles.audioIndicator}>
+                <Feather name="volume-2" size={14} color="#666666" />
+              </View>
+            )}
+            
+            <View style={styles.difficultyIndicator}>
+              <Text style={styles.difficultyText}>
+                {item.difficulty || 1}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Swipeable>
   );
 
   const renderEmptyState = () => (
@@ -563,5 +599,23 @@ const styles = StyleSheet.create({
     elevation: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.8)',
+  },
+
+  // 新增：删除按钮样式
+  deleteButton: {
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+    marginLeft: 8,
+  },
+  deleteButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginTop: 4,
   },
 });
