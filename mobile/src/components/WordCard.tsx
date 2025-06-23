@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Alert, ViewStyle, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Alert, ViewStyle, Platform, Pressable } from 'react-native';
 import Animated, { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -53,6 +53,12 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
   const [isFlipped, setIsFlipped] = useState(showAnswer);
   const [isSaved, setIsSaved] = useState(false);
   const flipValue = useSharedValue(showAnswer ? 1 : 0);
+
+  // 保证showAnswer、isFlipped、flipValue同步
+  useEffect(() => {
+    setIsFlipped(showAnswer);
+    flipValue.value = showAnswer ? 1 : 0;
+  }, [showAnswer]);
 
   useEffect(() => {
     // 检查单词是否已收藏
@@ -131,163 +137,81 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
 
   return (
     <View style={cardContainerStyle}>
-      <TouchableOpacity onPress={handleFlip} style={styles.cardTouchable} activeOpacity={0.95}>
-        {/* 卡片正面 */}
-        <Animated.View style={[styles.card, styles.cardFront, frontAnimatedStyle]}>
-          <View style={styles.frontGradient}>
-            <View style={styles.wordSection}>
-              <Text style={styles.word}>{safeWord.word || '未知单词'}</Text>
-              {safePronunciation && (
-                <View style={styles.phoneticRow}>
-                  <Text style={styles.phonetic}>[{safePronunciation}]</Text>
+      {/* 卡片正面 */}
+      <Animated.View style={[styles.card, styles.cardFront, frontAnimatedStyle]}>
+        {/* 透明层始终在最上层，保证可点击 */}
+        <Pressable style={[StyleSheet.absoluteFill, {zIndex: 10}]} onPress={handleFlip} />
+        <View style={styles.frontGradient} pointerEvents="box-none">
+          <View style={styles.wordSection}>
+            <Text style={styles.word}>{safeWord.word || '未知单词'}</Text>
+            {safePronunciation && (
+              <View style={styles.phoneticRow}>
+                <Text style={styles.phonetic}>[{safePronunciation}]</Text>
+                {safeAudioUrl && (
+                  <AudioPlayer
+                    audioUrl={safeAudioUrl}
+                    size={18}
+                    color="#666666"
+                    style={styles.phoneticAudioIcon}
+                    onPress={onAudioPlay}
+                  />
+                )}
+              </View>
+            )}
+          </View>
+          <ScrollView 
+            style={styles.translationsContainer} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 40 }}
+          >
+            {safeMeanings.length > 0 ? (
+              safeMeanings.slice(0, 5).map((meaning, index) => (
+                <View key={`front-${index}`} style={styles.translationItem}>
+                  <View style={styles.translationNumber}>
+                    <Text style={styles.translationNumberText}>{index + 1}</Text>
+                  </View>
+                  <Text style={[styles.partOfSpeech, styles.frontPartOfSpeech]}>
+                    {meaning.partOfSpeech || '未知'}
+                  </Text>
+                  <Text style={styles.translation} numberOfLines={2}>
+                    {meaning.definitionCn || '暂无释义'}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <View style={styles.noTranslation}>
+                <Text style={styles.noTranslationText}>暂无释义</Text>
+              </View>
+            )}
+          </ScrollView>
+          <View style={styles.flipIndicator}>
+            <Feather name="refresh-cw" size={14} color="#999999" />
+            <Text style={styles.flipIndicatorText}>轻触查看详情</Text>
+          </View>
+        </View>
+      </Animated.View>
+      {/* 卡片背面 */}
+      <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle]}>
+        <View style={styles.backGradient} pointerEvents="box-none">
+          {/* 顶部信息：单词、音标、收藏按钮 */}
+          <View style={styles.backHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.backWord}>{safeWord.word || '未知单词'}</Text>
+              {safePronunciation ? (
+                <View style={styles.backPhoneticRow}>
+                  <Text style={styles.backPhonetic}>{safePronunciation}</Text>
                   {safeAudioUrl && (
                     <AudioPlayer
                       audioUrl={safeAudioUrl}
-                      size={18}
+                      size={20}
                       color="#666666"
-                      style={styles.phoneticAudioIcon}
+                      style={styles.backPhoneticAudioIcon}
                       onPress={onAudioPlay}
                     />
                   )}
                 </View>
-              )}
+              ) : null}
             </View>
-
-            <ScrollView 
-              style={styles.translationsContainer} 
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 40 }}
-            >
-              {safeMeanings.length > 0 ? (
-                safeMeanings.slice(0, 5).map((meaning, index) => (
-                  <View key={`front-${index}`} style={styles.translationItem}>
-                    <View style={styles.translationNumber}>
-                      <Text style={styles.translationNumberText}>{index + 1}</Text>
-                    </View>
-                    <Text style={[styles.partOfSpeech, styles.frontPartOfSpeech]}>
-                      {meaning.partOfSpeech || '未知'}
-                    </Text>
-                    <Text style={styles.translation} numberOfLines={2}>
-                      {meaning.definitionCn || '暂无释义'}
-                    </Text>
-                  </View>
-                ))
-              ) : (
-                <View style={styles.noTranslation}>
-                  <Text style={styles.noTranslationText}>暂无释义</Text>
-                </View>
-              )}
-            </ScrollView>
-
-            <View style={styles.flipIndicator}>
-              <Feather name="refresh-cw" size={14} color="#999999" />
-              <Text style={styles.flipIndicatorText}>轻触查看详情</Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* 卡片背面 */}
-        <Animated.View style={[styles.card, styles.cardBack, backAnimatedStyle]}>
-          <View style={styles.backGradient}>
-            <ScrollView 
-              style={styles.backScrollView}
-              contentContainerStyle={styles.backContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.backHeader}>
-                <Text style={styles.backWord}>{safeWord.word || '未知单词'}</Text>
-                {/* 🔥 修改：背面也使用音标和发音图标的行布局 */}
-                {safePronunciation && (
-                  <View style={styles.backPhoneticRow}>
-                    <Text style={styles.backPhonetic}>{safePronunciation}</Text>
-                    {safeAudioUrl && (
-                      <AudioPlayer
-                        audioUrl={safeAudioUrl}
-                        size={20}
-                        color="#666666"
-                        style={styles.backPhoneticAudioIcon}
-                        onPress={onAudioPlay}
-                      />
-                    )}
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.meaningsContainer}>
-                {safeMeanings && safeMeanings.length > 0 ? (
-                  safeMeanings.slice(0, 3).map((meaning, index) => (
-                    <View key={`back-${index}`} style={styles.meaningItem}>
-                      <View style={styles.definitionRow}>
-                        <Text style={styles.partOfSpeech}>
-                          {meaning.partOfSpeech || '未知'}
-                        </Text>
-                        <Text style={styles.definitionCn}>
-                          {meaning.definitionCn || '暂无释义'}
-                        </Text>
-                      </View>
-                      
-                      {/* 例句和例句翻译 */}
-                      {((meaning.example && meaning.example.trim()) || (meaning.exampleCn && meaning.exampleCn.trim())) && (
-                        <View style={styles.exampleContainer}>
-                          {meaning.example && meaning.example.trim() && (
-                            <View style={[styles.exampleRow, !(meaning.exampleCn && meaning.exampleCn.trim()) && styles.lastExampleRow]}>
-                              <Feather name="anchor" size={12} color="#4A90E2" style={styles.exampleIcon} />
-                              <Text style={styles.example}>{meaning.example.trim()}</Text>
-                            </View>
-                          )}
-                          {meaning.exampleCn && meaning.exampleCn.trim() && (
-                            <View style={[styles.exampleRow, styles.lastExampleRow]}>
-                              <Feather name="chevrons-right" size={12} color="#555555" style={styles.exampleIcon} />
-                              <Text style={styles.exampleTranslation}>{meaning.exampleCn.trim()}</Text>
-                            </View>
-                          )}
-                        </View>
-                      )}
-                    </View>
-                  ))
-                ) : (
-                  <View style={styles.noMeaningContainer}>
-                    <Text style={styles.noMeaningText}>暂无详细释义</Text>
-                  </View>
-                )}
-
-                {/* 拼写建议区域 */}
-                {safeSpellingSuggestions.length > 0 && (
-                  <View style={styles.spellingSuggestionsContainer}>
-                    <View style={styles.suggestionsHeader}>
-                      <Feather name="search" size={16} color="#4A90E2" />
-                      <Text style={styles.suggestionsTitle}>拼写建议</Text>
-                    </View>
-                    <View style={styles.suggestionsList}>
-                      {safeSpellingSuggestions.map((suggestion, index) => (
-                        <TouchableOpacity
-                          key={`suggestion-${index}`}
-                          style={styles.suggestionItem}
-                          onPress={() => {
-                            // 这里需要通知父组件进行新的搜索
-                            if (onWordSaved) {
-                              // 临时使用onWordSaved回调来传递建议单词
-                              onWordSaved({ ...safeWord, word: suggestion });
-                            }
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.suggestionText}>{suggestion}</Text>
-                          <Feather name="arrow-right" size={14} color="#999999" />
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.backFlipHint}>
-                <Feather name="refresh-cw" color="#999999" size={14} />
-                <Text style={styles.backFlipHintText}>轻触返回正面</Text>
-              </View>
-            </ScrollView>
-
-            {/* 右上角爱心收藏按钮 */}
             <TouchableOpacity 
               style={styles.heartButton}
               onPress={toggleSaveWord}
@@ -301,8 +225,83 @@ export default function WordCard({ word, onAudioPlay, showAnswer = false, onFlip
               />
             </TouchableOpacity>
           </View>
-        </Animated.View>
-      </TouchableOpacity>
+          {/* 释义内容滚动区域 */}
+          <ScrollView
+            style={styles.meaningsScrollView}
+            contentContainerStyle={styles.meaningsScrollContent}
+            showsVerticalScrollIndicator={true}
+          >
+            <View style={styles.meaningsContainer}>
+              {safeMeanings && safeMeanings.length > 0 ? (
+                safeMeanings.map((meaning, index) => (
+                  <View key={`back-${index}`} style={styles.meaningItem}>
+                    <View style={styles.definitionRow}>
+                      <Text style={styles.partOfSpeech}>
+                        {meaning.partOfSpeech || '未知'}
+                      </Text>
+                      <Text style={styles.definitionCn}>
+                        {meaning.definitionCn || '暂无释义'}
+                      </Text>
+                    </View>
+                    {/* 例句和例句翻译 */}
+                    {((meaning.example && meaning.example.trim()) || (meaning.exampleCn && meaning.exampleCn.trim())) && (
+                      <View style={styles.exampleContainer}>
+                        {meaning.example && meaning.example.trim() && (
+                          <View style={[styles.exampleRow, !(meaning.exampleCn && meaning.exampleCn.trim()) && styles.lastExampleRow]}>
+                            <Feather name="anchor" size={12} color="#4A90E2" style={styles.exampleIcon} />
+                            <Text style={styles.example}>{meaning.example.trim()}</Text>
+                          </View>
+                        )}
+                        {meaning.exampleCn && meaning.exampleCn.trim() && (
+                          <View style={[styles.exampleRow, styles.lastExampleRow]}>
+                            <Feather name="chevrons-right" size={12} color="#555555" style={styles.exampleIcon} />
+                            <Text style={styles.exampleTranslation}>{meaning.exampleCn.trim()}</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                ))
+              ) : (
+                <View style={styles.noMeaningContainer}>
+                  <Text style={styles.noMeaningText}>暂无详细释义</Text>
+                </View>
+              )}
+              {/* 拼写建议区域 */}
+              {safeSpellingSuggestions.length > 0 && (
+                <View style={styles.spellingSuggestionsContainer}>
+                  <View style={styles.suggestionsHeader}>
+                    <Feather name="search" size={16} color="#4A90E2" />
+                    <Text style={styles.suggestionsTitle}>拼写建议</Text>
+                  </View>
+                  <View style={styles.suggestionsList}>
+                    {safeSpellingSuggestions.map((suggestion, index) => (
+                      <TouchableOpacity
+                        key={`suggestion-${index}`}
+                        style={styles.suggestionItem}
+                        onPress={() => {
+                          if (onWordSaved) {
+                            onWordSaved({ ...safeWord, word: suggestion });
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.suggestionText}>{suggestion}</Text>
+                        <Feather name="arrow-right" size={14} color="#999999" />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+          {/* 底部提示区域可点返回正面 */}
+          <TouchableOpacity style={styles.backFlipHint} onPress={handleFlip} activeOpacity={0.7}>
+            <Feather name="refresh-cw" color="#999999" size={14} />
+            <Text style={styles.backFlipHintText}>轻触返回正面</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -341,6 +340,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#FFFFFF',
     padding: 0,
+    flexDirection: 'column',
   },
   cardHeader: {
     marginBottom: 32,
@@ -597,5 +597,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#111111',
     marginRight: 8,
+  },
+  backHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 8,
+    minHeight: 60,
+  },
+  meaningsScrollView: {
+    flex: 1,
+    marginHorizontal: 12,
+    borderRadius: 12,
+  },
+  meaningsScrollContent: {
+    paddingBottom: 16,
   },
 });

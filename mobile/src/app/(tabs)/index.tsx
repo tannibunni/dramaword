@@ -330,7 +330,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingVertical: 24,
+    paddingTop: 8,
+    paddingBottom: 24,
     minHeight: 400,
   },
   loadingContainer: {
@@ -413,6 +414,7 @@ const styles = StyleSheet.create({
   wordContainer: {
     alignItems: 'center',
     paddingHorizontal: 24,
+    marginTop: 0,
   },
   emptyContainer: {
     flex: 1,
